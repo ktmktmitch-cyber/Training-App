@@ -4,6 +4,7 @@ import { Field, Seg, useToast } from '../components/ui';
 import { useApp } from '../lib/store';
 import { stravaDisconnect } from '../lib/strava';
 import { remove } from '../lib/storage';
+import { DEFAULT_TEAM_URL } from '../lib/team';
 
 export function SettingsPage() {
   const app = useApp();
@@ -122,6 +123,16 @@ export function SettingsPage() {
       </div>
 
       <div className="card stack">
+        <h2>Team (coach view)</h2>
+        <p className="small ink2">
+          The Team tab reads <code>data/team.json</code> from your team-dashboard repository, which its GitHub Action rebuilds every few hours from your coach account. With your intervals.icu (coach) key added above, the Team tab can also pull each rider’s wellness and activities for load buckets, readiness and Garmin VO2max.
+        </p>
+        <Field label="Team data URL" hint="Leave empty for the default team-dashboard repository.">
+          <input className="input" value={settings.teamUrl} placeholder={DEFAULT_TEAM_URL} onChange={(e) => app.updateSettings((s) => ({ ...s, teamUrl: e.target.value.trim() }))} />
+        </Field>
+      </div>
+
+      <div className="card stack">
         <h2>Garmin</h2>
         <p className="small ink2">
           Garmin’s API is only open to approved businesses, so this app connects to Garmin through intervals.icu (which is an official Garmin partner). In intervals.icu → Settings → Garmin, turn on <b>Sync activities</b>, <b>Download wellness</b> (HRV, resting HR, sleep) and <b>Upload planned workouts</b>. Workouts you send from this app then appear on your Garmin calendar and on your device as structured workouts.
@@ -236,7 +247,7 @@ export function SettingsPage() {
             className="btn sm ghost"
             onClick={() => {
               if (!confirm('Reset all settings, weeks and cached data in this browser?')) return;
-              ['ta.settings.v1', 'ta.weeks.v1', 'ta.checkins.v1', 'ta.data.v1'].forEach(remove);
+              ['ta.settings.v1', 'ta.weeks.v1', 'ta.checkins.v1', 'ta.data.v1', 'ta.feedback.v1', 'ta.history.v1', 'ta.journal.v1', 'ta.scheduled.v1', 'ta.team.v1', 'ta.team.v1.at', 'ta.teamdeep.v1'].forEach(remove);
               window.location.reload();
             }}
           >

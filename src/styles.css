@@ -1245,3 +1245,90 @@ details.more summary {
   color: var(--ink);
   font-weight: 650;
 }
+
+/* ---------- v4: team ---------- */
+.team-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.team-tiles .label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.team-big {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 4px 0;
+}
+.team-table th.group {
+  text-align: center;
+  color: var(--ink);
+}
+.team-table th.num,
+.team-table td.num {
+  text-align: right;
+}
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+.sortable-th[aria-sort] {
+  color: var(--ink);
+}
+.sticky-col {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+tr.current .sticky-col {
+  background: var(--accent-soft);
+}
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pr-ink {
+  color: var(--good-ink);
+  font-weight: 650;
+}
+.good-ink {
+  color: var(--good-ink);
+}
+.bad-ink {
+  color: var(--critical-ink);
+}
+.mixbar {
+  display: inline-flex;
+  gap: 2px;
+  width: 90px;
+  height: 10px;
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.mixbar i {
+  display: block;
+  height: 100%;
+}
+.htrack.thin {
+  height: 8px;
+}
+.thin-seg {
+  height: 14px;
+}
+details.card > summary {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+}

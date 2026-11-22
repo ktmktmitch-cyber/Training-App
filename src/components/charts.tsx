@@ -273,7 +273,7 @@ export function BarChart(props: {
               {d && <path d={d} fill={color} opacity={highlight != null && highlight !== i ? 0.55 : hover != null && hover !== i ? 0.75 : 1} />}
               {(() => {
                 const step = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(width / 52))));
-                return (i % step === 0 && n - 1 - i >= Math.ceil(step / 2)) || i === n - 1;
+                return (i % step === 0 && n - 1 - i >= step) || i === n - 1;
               })() && (
                 <text x={cx} y={height - 6} textAnchor="middle" fontSize={11} fill="var(--muted)">
                   {labels[i]}

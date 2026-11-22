@@ -30,8 +30,19 @@ export const DEMO_PROFILE: AthleteProfile = {
   pMax: 1120,
 };
 
-export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: Activity[]; wellness: Wellness[]; events: CalendarEvent[] } {
-  const r = rng(42);
+export interface DemoOpts {
+  seed?: number;
+  scale?: number; // training volume multiplier
+  ftp?: number;
+  weightKg?: number;
+  stopDaysAgo?: number; // rider stopped training this many days ago
+}
+
+export function demoData(asOf: ISODate, opts: DemoOpts = {}): { profile: AthleteProfile; activities: Activity[]; wellness: Wellness[]; events: CalendarEvent[] } {
+  const r = rng(opts.seed ?? 42);
+  const vol = opts.scale ?? 1;
+  const ftpBase = opts.ftp ?? 265;
+  const profile: AthleteProfile = { ...DEMO_PROFILE, ftp: ftpBase, eftp: ftpBase + 3, cp: Math.round(ftpBase * 0.99), weightKg: opts.weightKg ?? DEMO_PROFILE.weightKg, wPrime: Math.round(19500 * (ftpBase / 265)), pMax: Math.round(1120 * (ftpBase / 265)) };
   const activities: Activity[] = [];
   const wellness: Wellness[] = [];
   let ctl = 45;
@@ -43,7 +54,8 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
     const week = Math.floor((days - i) / 7);
     const recoveryWeek = week % 4 === 3;
     let load = 0;
-    const mk = (name: string, min: number, ifac: number, zones: number[], hard = false, rpe: number | null = null): Activity => {
+    const mk = (name: string, min0: number, ifac: number, zones: number[], hard = false, rpe: number | null = null): Activity => {
+      const min = Math.round(min0 * vol);
       const secs = min * 60;
       const tot = zones.reduce((a, b) => a + b, 0);
       const z = zones.map((x) => Math.round((x / tot) * secs));
@@ -57,7 +69,7 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
         movingSec: secs,
         tss: Math.round((min / 60) * ifac * ifac * 100),
         intensity: ifac,
-        normalizedPower: Math.round(DEMO_PROFILE.ftp! * ifac),
+        normalizedPower: Math.round(ftpBase * ifac),
         avgHr: Math.round(60 + ifac * 265 * 0.42 + (d === 2 || d === 4 ? 5 : 0) + 0.25 * (8 + 10 * Math.sin((days - i) / 19) - 15) - week * 0.35 + (r() - 0.5) * 3),
         powerZoneSecs: z,
         hrZoneSecs: [z[0] + z[1] * 0.6, z[1] * 0.4 + z[2] * 0.5, z[2] * 0.5, z[3], z[4], z[5], z[6]].map(Math.round),
@@ -76,12 +88,15 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
       };
     };
     const scale = recoveryWeek ? 0.6 : 1;
-    if (d === 2) activities.push(mk('Threshold 3×12', 75 * scale, recoveryWeek ? 0.68 : 0.83, recoveryWeek ? [30, 60, 10, 0, 0, 0, 0] : [25, 35, 8, 30, 2, 0, 0], !recoveryWeek, recoveryWeek ? null : 7));
-    if (d === 3) activities.push(mk('Endurance', 60 * scale, 0.66, [25, 70, 5, 0, 0, 0, 0]));
-    if (d === 4 && !recoveryWeek) activities.push(mk('VO2 5×4', 70, 0.84, [30, 35, 5, 6, 22, 2, 0], true, 8));
-    if (d === 6) activities.push(mk('Group ride', 150 * scale, 0.78, [20, 45, 18, 10, 5, 1.5, 0.5], !recoveryWeek));
-    if (d === 0) activities.push(mk('Long endurance', 180 * scale, 0.68, [20, 72, 7, 1, 0, 0, 0]));
-    if ((d === 1 || d === 4) && week < 14 && r() > 0.25) {
+    const stopped = opts.stopDaysAgo != null && i < opts.stopDaysAgo;
+    if (stopped) {
+      /* no training */
+    } else if (d === 2) activities.push(mk('Threshold 3×12', 75 * scale, recoveryWeek ? 0.68 : 0.83, recoveryWeek ? [30, 60, 10, 0, 0, 0, 0] : [25, 35, 8, 30, 2, 0, 0], !recoveryWeek, recoveryWeek ? null : 7));
+    if (!stopped && d === 3) activities.push(mk('Endurance', 60 * scale, 0.66, [25, 70, 5, 0, 0, 0, 0]));
+    if (!stopped && d === 4 && !recoveryWeek) activities.push(mk('VO2 5×4', 70, 0.84, [30, 35, 5, 6, 22, 2, 0], true, 8));
+    if (!stopped && d === 6) activities.push(mk('Group ride', 150 * scale, 0.78, [20, 45, 18, 10, 5, 1.5, 0.5], !recoveryWeek));
+    if (!stopped && d === 0) activities.push(mk('Long endurance', 180 * scale, 0.68, [20, 72, 7, 1, 0, 0, 0]));
+    if (!stopped && (d === 1 || d === 4) && week < 14 && r() > 0.25) {
       activities.push({
         id: `demo-${date}-str`,
         date,
@@ -121,12 +136,16 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
       stress: null,
       mood: null,
       motivation: null,
-      eftp: Math.round(255 + week * 0.9),
+      eftp: Math.round(ftpBase - 10 + week * 0.9),
+      wPrime: profile.wPrime,
+      pMax: profile.pMax,
+      vo2max: Math.round(10.8 * ((ftpBase * 1.22) / (profile.weightKg ?? 72)) + 7 + (r() - 0.5) * 2),
+      weightKg: profile.weightKg,
     });
   }
   for (let i = 7; i < wellness.length; i++) wellness[i].rampRate = (wellness[i].ctl ?? 0) - (wellness[i - 7].ctl ?? 0);
   const events: CalendarEvent[] = [{ id: 'demo-b', date: addDays(asOf, 54), category: 'RACE_B', name: 'Spring Road Race (demo)' }];
-  return { profile: DEMO_PROFILE, activities, wellness, events };
+  return { profile, activities, wellness, events };
 }
 
 /** A week of "what was planned" so the demo shows compliance colours and a missed session. */

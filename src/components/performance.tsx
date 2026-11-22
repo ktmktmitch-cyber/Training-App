@@ -1,5 +1,8 @@
 import { fmtShort } from '../engine/dates';
 import type { PerformanceAnalysis } from '../engine/performance';
+import type { Staleness } from '../engine/staleness';
+import type { ReadinessStatus } from '../engine/types';
+import type { Vo2Estimate } from '../engine/vo2max';
 import { LineChart } from './charts';
 import { StatusIcon } from './ui';
 
@@ -198,6 +201,95 @@ export function BestEffortsCard({ perf }: { perf: PerformanceAnalysis }) {
       </div>
       <p className="tiny muted" style={{ marginTop: 6 }}>
         From efforts intervals.icu detected in your rides (a lower bound of your true best). Efforts done while very fatigued understate fitness.
+      </p>
+    </div>
+  );
+}
+
+export function Vo2Card({ vo2, history }: { vo2: Vo2Estimate; history: { date: string; vo2: number }[] }) {
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>VO2max estimate</h2>
+        {vo2.category && <span className="chip">{vo2.category}</span>}
+      </div>
+      <div className="row" style={{ alignItems: 'flex-end', gap: 14 }}>
+        <div className="big-number num">{vo2.value?.toFixed(1) ?? '—'}</div>
+        <span className="small muted" style={{ paddingBottom: 6 }}>
+          ml/kg/min
+        </span>
+      </div>
+      <div className="grid-3" style={{ marginTop: 10 }}>
+        <div className="metric">
+          <div className="label">From power</div>
+          <div className="value num">{vo2.power?.toFixed(1) ?? '—'}</div>
+          <div className="sub">{vo2.p5 ? `5-min ≈ ${vo2.p5} W` : 'needs power data'}</div>
+        </div>
+        <div className="metric">
+          <div className="label">Garmin</div>
+          <div className="value num">{vo2.garmin ?? '—'}</div>
+          <div className="sub">device estimate</div>
+        </div>
+        <div className="metric">
+          <div className="label">Weight</div>
+          <div className="value num">{vo2.weightKg ?? '—'}</div>
+          <div className="sub">kg</div>
+        </div>
+      </div>
+      {history.length > 5 && (
+        <div style={{ marginTop: 10 }}>
+          <LineChart title="Garmin VO2max history" labels={history.map((h) => fmtShort(h.date))} series={[{ name: 'Garmin VO2max', color: 'var(--s1)', values: history.map((h) => h.vo2) }]} height={130} />
+        </div>
+      )}
+      <p className="tiny muted" style={{ marginTop: 6 }}>
+        {vo2.method ? `${vo2.method}. ` : ''}Power-based: ACSM cycling equation, 10.8 × (5-min W/kg) + 7. 5-min power slightly under-reads a lab ramp-test peak, so this is a conservative field estimate.
+      </p>
+    </div>
+  );
+}
+
+const STALE_ST: Record<string, ReadinessStatus> = { low: 'green', moderate: 'amber', high: 'red', unknown: 'unknown' };
+
+export function StalenessCard({ s }: { s: Staleness }) {
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>Staleness risk</h2>
+        <span className="status-pill">
+          <StatusIcon status={STALE_ST[s.level]} />
+          {{ low: 'Low', moderate: 'Watch', high: 'High', unknown: 'No data' }[s.level]}
+          {s.score != null ? ` · ${s.score}` : ''}
+        </span>
+      </div>
+      <p className="small ink2">{s.summary}</p>
+      <div className="grid-3" style={{ marginTop: 8 }}>
+        <div className="metric">
+          <div className="label">Monotony (7 d)</div>
+          <div className="value num">{s.monotony ?? '—'}</div>
+          <div className="sub">mean ÷ SD of daily load; &gt;2 = risky</div>
+        </div>
+        <div className="metric">
+          <div className="label">Strain (7 d)</div>
+          <div className="value num">{s.strain ?? '—'}</div>
+          <div className="sub">weekly load × monotony</div>
+        </div>
+        <div className="metric">
+          <div className="label">Strain vs usual</div>
+          <div className="value num">{s.strainVsUsual != null ? `${s.strainVsUsual}×` : '—'}</div>
+          <div className="sub">vs previous 5 weeks</div>
+        </div>
+      </div>
+      {s.factors.length > 0 && (
+        <ul className="why" style={{ marginTop: 8 }}>
+          {s.factors.map((f) => (
+            <li key={f.label}>
+              <b>{f.label}:</b> {f.detail}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="tiny muted" style={{ marginTop: 6 }}>
+        “Staleness” is the classic term for the flat, overreached state before overtraining. Based on Foster’s monotony/strain model plus fatigue, stimulus, performance and HRV/RHR signals.
       </p>
     </div>
   );

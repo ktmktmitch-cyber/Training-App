@@ -6,6 +6,7 @@ import { LibraryPage } from './pages/LibraryPage';
 import { SeasonPage } from './pages/SeasonPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { StrengthPage } from './pages/StrengthPage';
+import { TeamPage } from './pages/TeamPage';
 import { TrendsPage } from './pages/TrendsPage';
 import { WeekPage } from './pages/WeekPage';
 
@@ -15,6 +16,7 @@ function MorePage() {
       <h1>More</h1>
       <div className="more-links">
         {[
+          { id: 'season', label: 'Season plan', icon: 'season' as const },
           { id: 'strength', label: 'Strength', icon: 'strength' as const },
           { id: 'settings', label: 'Settings', icon: 'settings' as const },
           { id: 'guide', label: 'Guide & science', icon: 'guide' as const },
@@ -31,9 +33,10 @@ function MorePage() {
 
 const ROUTES = [
   { id: 'week', label: 'Week', icon: 'week' as const, el: <WeekPage />, mobile: true },
-  { id: 'season', label: 'Season', icon: 'season' as const, el: <SeasonPage />, mobile: true },
+  { id: 'season', label: 'Season', icon: 'season' as const, el: <SeasonPage />, mobile: false },
   { id: 'library', label: 'Library', icon: 'library' as const, el: <LibraryPage />, mobile: true },
   { id: 'progress', label: 'Progress', icon: 'trends' as const, el: <TrendsPage />, mobile: true },
+  { id: 'team', label: 'Team', icon: 'team' as const, el: <TeamPage />, mobile: true },
   { id: 'strength', label: 'Strength', icon: 'strength' as const, el: <StrengthPage />, mobile: false },
   { id: 'settings', label: 'Settings', icon: 'settings' as const, el: <SettingsPage />, mobile: false },
   { id: 'guide', label: 'Guide', icon: 'guide' as const, el: <GuidePage />, mobile: false },
@@ -58,7 +61,7 @@ function Shell() {
   const route = useRoute();
   const app = useApp();
   const current = ROUTES.find((x) => x.id === (route === 'trends' ? 'progress' : route)) ?? ROUTES[0];
-  const moreActive = ['strength', 'settings', 'guide', 'more'].includes(current.id);
+  const moreActive = ['season', 'strength', 'settings', 'guide', 'more'].includes(current.id);
   return (
     <div className="app">
       <header className="topbar">

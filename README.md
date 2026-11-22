@@ -17,6 +17,16 @@ Then **one tap sends the week to your intervals.icu calendar as structured worko
 - **Behaviour journal**: tag alcohol, travel, late meals, illness, etc. Where biologically justified, those mornings are kept out of your HRV/RHR baseline and 7-day trend. You also see your personal impact per behaviour.
 - **54-workout library** with levels and durations. Any workout (library or recommended) can be added to the plan, **sent to intervals.icu (→ Garmin/Wahoo/Zwift)**, or downloaded as a **Garmin .FIT** (validated with Garmin's FIT SDK), **Zwift .zwo** or **.MRC** file.
 
+### Team tab (coach view)
+
+Reads `data/team.json` published by the [team-dashboard](https://github.com/ktmktmitch-cyber/team-dashboard) repository's GitHub Action (every rider you coach on intervals.icu), straight from the browser. It has everything the dashboard has (team tiles, sortable leaderboard with power PRs, rider drill-down, hours by rider, recent PRs, activity feed) plus:
+
+- **VO2max estimate** per rider (CP model from 3/12-min bests → ACSM cycling equation; averaged with Garmin VO2max when available)
+- **Staleness risk** (Foster monotony/strain from back-calculated daily load, deep fatigue, missing stimulus, inactivity, stalled power, HRV/RHR)
+- **Training-load buckets** (low aerobic / high aerobic / anaerobic), readiness and training status per rider, via "Load detailed metrics" with your coach API key
+
+Change the source in Settings → Team. The same VO2max and staleness metrics are on your own Progress page.
+
 ### Borrowed from the best training apps
 
 | Idea | Inspired by |
@@ -108,6 +118,9 @@ src/engine/            pure TypeScript training logic (unit-tested)
   exporters.ts         Garmin FIT workout encoder + MRC
   performance.ts       FTP estimate, conditions-adjusted efficiency, improvement verdict
   journal.ts           behaviour tags, baseline/trend exclusion policy, personal impact
+  team.ts              team.json types, per-rider metrics, live enrichment
+  staleness.ts         staleness risk (monotony/strain, fatigue, stimulus, HRV/RHR)
+  vo2max.ts            VO2max estimate from power and Garmin
 src/lib/               intervals.icu + Strava clients, storage, app state
 src/pages, components  React UI
 tests/                 vitest

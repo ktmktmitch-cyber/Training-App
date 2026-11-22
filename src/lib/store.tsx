@@ -5,6 +5,9 @@ import { allExternalIdsFor, dayToIcuEvents, workoutDescription, EXTERNAL_PREFIX 
 import { affectedMornings, tagImpacts, type Journal, type MorningEffect, type TagImpact, type TagKey } from '../engine/journal';
 import { computeLoadFocus, type LoadFocus } from '../engine/loadFocus';
 import { analyzePerformance, type PerformanceAnalysis } from '../engine/performance';
+import { computeStaleness, type Staleness } from '../engine/staleness';
+import { isHardSession } from '../engine/trends';
+import { estimateVo2, type Vo2Estimate } from '../engine/vo2max';
 import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
 import { trainingStatus, type TrainingStatus } from '../engine/status';
@@ -54,6 +57,7 @@ export interface AppSettings {
   usualHours: number;
   usualDays: Partial<Record<number, DayConfig>>;
   startOffset: 0 | 1; // plan from today (0) or tomorrow (1)
+  teamUrl: string; // team-dashboard data/team.json
 }
 
 export interface DataState {
@@ -105,6 +109,7 @@ function initialSettings(): AppSettings {
     usualHours: 8,
     usualDays: {},
     startOffset: 1,
+    teamUrl: '',
   };
   if (!stored) return base;
   return {
@@ -160,6 +165,10 @@ interface Ctx {
   scheduled: Record<ISODate, Scheduled>;
   schedule: (date: ISODate, s: Scheduled | null) => void;
   pushWorkout: (date: ISODate, w: PlannedWorkout) => Promise<string>;
+  getConnection: () => Connection;
+  vo2: Vo2Estimate;
+  vo2History: { date: ISODate; vo2: number }[];
+  staleness: Staleness;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -388,6 +397,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const performance = useMemo(() => analyzePerformance(data.activities, data.wellness, effProfile, asOf), [data.activities, data.wellness, effProfile, asOf]);
   const impacts = useMemo(() => tagImpacts(journal, data.wellness, asOf), [journal, data.wellness, asOf]);
   const status = useMemo(() => trainingStatus(data.wellness, readiness, asOf, performance.improvement), [data.wellness, readiness, asOf, performance.improvement]);
+  const vo2History = useMemo(
+    () => data.wellness.filter((w) => w.vo2max && diffDays(asOf, w.date) >= 0 && diffDays(asOf, w.date) <= 180).map((w) => ({ date: w.date, vo2: w.vo2max as number })),
+    [data.wellness, asOf],
+  );
+  const vo2 = useMemo(() => {
+    const p5best = performance.bestEfforts.find((b) => b.secs === 300)?.recent ?? null;
+    const latestW = [...data.wellness].reverse().find((w) => w.eftp && w.wPrime && w.pMax);
+    return estimateVo2({
+      p5: p5best,
+      cp: latestW?.eftp ?? effProfile?.cp ?? null,
+      wPrime: latestW?.wPrime ?? effProfile?.wPrime ?? null,
+      pMax: latestW?.pMax ?? effProfile?.pMax ?? null,
+      weightKg: effProfile?.weightKg ?? [...data.wellness].reverse().find((w) => w.weightKg)?.weightKg ?? null,
+      garmin: vo2History.length ? vo2History[vo2History.length - 1].vo2 : null,
+    });
+  }, [performance.bestEfforts, data.wellness, effProfile, vo2History]);
+  const staleness = useMemo(() => {
+    const byDay = new Map<ISODate, number>();
+    for (const a of data.activities) byDay.set(a.date, (byDay.get(a.date) ?? 0) + (a.tss ?? 0));
+    const daily = Array.from({ length: 42 }, (_, i) => addDays(asOf, -i)).map((d) => ({ date: d, load: byDay.get(d) ?? 0 }));
+    const tsb = data.wellness.filter((w) => w.ctl != null && w.atl != null).map((w) => ({ date: w.date, tsb: (w.ctl as number) - (w.atl as number) }));
+    const rides = data.activities.filter((a) => a.isRide && diffDays(asOf, a.date) >= 0).sort((a, b) => b.date.localeCompare(a.date));
+    const hard = rides.find(isHardSession);
+    const eftpF = performance.improvement.factors.find((f) => f.label.startsWith('eFTP'));
+    const ctlF = performance.improvement.factors.find((f) => f.label.startsWith('Fitness'));
+    return computeStaleness({
+      asOf,
+      daily,
+      tsb,
+      lastRide: rides[0]?.date ?? null,
+      lastHard: hard?.date ?? null,
+      prsLast8w: null,
+      eftpChangePct: eftpF ? parseFloat(eftpF.value) : null,
+      ctlChange28: ctlF ? parseFloat(ctlF.value) : null,
+      hrvLow: readiness.flags.some((f) => f.id === 'hrv-low' || f.id === 'hrv-below'),
+      rhrHigh: readiness.flags.some((f) => f.id === 'rhr-high'),
+    });
+  }, [data.activities, data.wellness, asOf, performance.improvement, readiness]);
   const snapshots = useMemo(() => (settings.demo ? demoSnapshots(asOf) : history), [settings.demo, asOf, history]);
   const compliance = useMemo(
     () => computeCompliance(range(addDays(asOf, -7), 8), asOf, data.events, data.activities, snapshots),
@@ -518,6 +565,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     scheduled,
     schedule,
     pushWorkout,
+    getConnection: connection,
+    vo2,
+    vo2History,
+    staleness,
   };
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

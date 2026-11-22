@@ -58,6 +58,13 @@ export function GuidePage() {
           <li>Any workout, picked from the library or recommended in your plan, can be: added to your plan on any date (the week re-plans around it), sent to intervals.icu (which syncs to Garmin Connect, Wahoo and Zwift), downloaded as a <b>Garmin .FIT</b> workout (copy to <code>Garmin/NewFiles</code> over USB), a <b>Zwift .zwo</b>, an <b>.MRC</b> file for other indoor apps, or copied as intervals.icu text.</li>
         </ul>
 
+        <h2>Team (coach view)</h2>
+        <ul>
+          <li>The Team tab reads <code>data/team.json</code> from your team-dashboard repository (rebuilt every few hours by its GitHub Action from your coach account), so it works without any server. It has everything the dashboard has: team tiles, a sortable leaderboard (volume, fitness, form, eFTP, best power with ★ PRs), rider drill-downs (weekly hours, fitness/fatigue/form, latest rides), hours by rider, recent PRs and the activity feed.</li>
+          <li><b>Added:</b> a VO2max estimate per rider (5-min power from their 3- and 12-min bests via a critical-power model → ACSM cycling equation), staleness risk, and form zones. With your coach API key, “Load detailed metrics” also pulls each rider’s wellness and activities for training-load buckets (low aerobic / high aerobic / anaerobic), HRV-based readiness, training status and their Garmin VO2max.</li>
+          <li><b>Staleness</b> is the classic term for the flat, overreached state that precedes overtraining. Foster showed that monotonous loading (high mean ÷ SD of daily load) multiplied by load (“strain”) precedes illness and staleness. The score adds chronically deep fatigue, no top-end stimulus for 3+ weeks, inactivity, stalled power despite rising load, and suppressed HRV / elevated resting HR. From team.json alone, daily load is back-calculated exactly from the fatigue (ATL) series.</li>
+        </ul>
+
         <h2>Macro periodization options</h2>
         <ul>
           <li><b>Traditional (linear):</b> prep → base (Zone 2 + tempo/sweet spot) → build (threshold + VO2max) → peak (race-specific) → taper. 3:1 load:recovery by default.</li>
@@ -120,6 +127,8 @@ export function GuidePage() {
           <li>Tabata I et al. (1996). Effects of moderate-intensity endurance and high-intensity intermittent training on anaerobic capacity and VO2max. Med Sci Sports Exerc.</li>
           <li>Pietilä J et al. (2018). Acute effect of alcohol intake on cardiovascular autonomic regulation during the first hours of sleep in a large real-world sample of Finnish employees. JMIR Ment Health.</li>
           <li>Altini M, Plews D (2021). What is behind changes in resting heart rate and heart rate variability? A large-scale analysis of longitudinal measurements acquired in free-living. Sensors.</li>
+          <li>Foster C (1998). Monitoring training in athletes with reference to overtraining syndrome. Med Sci Sports Exerc.</li>
+          <li>American College of Sports Medicine. ACSM’s Guidelines for Exercise Testing and Prescription — metabolic equation for leg cycling.</li>
           <li>Impellizzeri FM et al. (2020). Acute:chronic workload ratio: conceptual issues and fundamental pitfalls. Int J Sports Physiol Perform. (Why this app uses CTL ramp rate, not ACWR.)</li>
         </ul>
       </div>

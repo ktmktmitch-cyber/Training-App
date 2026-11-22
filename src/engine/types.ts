@@ -76,6 +76,8 @@ export interface Wellness {
   eftp: number | null;
   wPrime?: number | null;
   pMax?: number | null;
+  vo2max?: number | null; // device (Garmin) VO2max estimate
+  weightKg?: number | null;
 }
 
 export type EventCategory = 'RACE_A' | 'RACE_B' | 'RACE_C' | 'WORKOUT' | 'NOTE' | 'HOLIDAY' | 'SICK' | 'INJURED' | string;

@@ -86,6 +86,8 @@ interface RawWellness {
   mood?: number | null;
   motivation?: number | null;
   sportInfo?: { type: string; eftp?: number | null; wPrime?: number | null; pMax?: number | null }[] | null;
+  vo2max?: number | null;
+  weight?: number | null;
 }
 interface RawActivity {
   id: string;
@@ -171,6 +173,8 @@ export function normalizeWellness(w: RawWellness): Wellness {
     eftp: w.sportInfo?.find((s) => s.type === 'Ride')?.eftp ?? null,
     wPrime: w.sportInfo?.find((s) => s.type === 'Ride')?.wPrime ?? null,
     pMax: w.sportInfo?.find((s) => s.type === 'Ride')?.pMax ?? null,
+    vo2max: w.vo2max ?? null,
+    weightKg: w.weight ?? null,
   };
 }
 
@@ -256,6 +260,23 @@ export async function fetchAll(conn: Connection, oldest: ISODate, newest: ISODat
     wellness,
     activities: (activitiesRaw ?? []).map(normalizeActivity).filter((a) => a.date),
     events: (eventsRaw ?? []).map(normalizeEvent),
+  };
+}
+
+/** One athlete's profile, wellness and activities (works for coached athletes with the coach's key). */
+export async function fetchAthleteData(conn: Connection, athleteId: string, oldest: ISODate, newest: ISODate) {
+  const c = { ...conn, athleteId };
+  const [athlete, wellnessRaw, activitiesRaw] = await Promise.all([
+    call<RawAthlete>(c, `/athlete/${aid(c)}`),
+    call<RawWellness[]>(c, `/athlete/${aid(c)}/wellness?oldest=${oldest}&newest=${newest}`),
+    call<RawActivity[]>(c, `/athlete/${aid(c)}/activities?oldest=${oldest}&newest=${newest}`),
+  ]);
+  const wellness = (wellnessRaw ?? []).map(normalizeWellness).sort((a, b) => a.date.localeCompare(b.date));
+  const latestW = [...wellness].reverse().find((w) => w.eftp) ?? null;
+  return {
+    profile: normalizeAthlete(athlete, latestW?.eftp ?? null, latestW),
+    wellness,
+    activities: (activitiesRaw ?? []).map(normalizeActivity).filter((a) => a.date),
   };
 }
 

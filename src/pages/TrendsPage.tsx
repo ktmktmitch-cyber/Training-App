@@ -6,7 +6,7 @@ import { loadSeries } from '../engine/trends';
 import { BarChart, LineChart } from '../components/charts';
 import { AerobicCard, LoadFocusCard, PowerProfileCard, ProgressionCard, StatusChip } from '../components/insights';
 import { JournalCard } from '../components/JournalCard';
-import { BestEffortsCard, EfficiencyCard, FtpCard, ImprovementCard } from '../components/performance';
+import { BestEffortsCard, EfficiencyCard, FtpCard, ImprovementCard, StalenessCard, Vo2Card } from '../components/performance';
 import { Seg, useToast } from '../components/ui';
 import { TAG_BY_KEY } from '../engine/journal';
 import { useApp } from '../lib/store';
@@ -123,9 +123,10 @@ export function TrendsPage() {
           </div>
           <EfficiencyCard perf={app.performance} />
           <div className="grid-2">
+            <Vo2Card vo2={app.vo2} history={app.vo2History} />
             <BestEffortsCard perf={app.performance} />
-            <PowerProfileCard power={app.power} />
           </div>
+          <PowerProfileCard power={app.power} />
           <AerobicCard trends={trends} />
         </>
       )}
@@ -133,8 +134,9 @@ export function TrendsPage() {
       <>
       <div className="grid-2">
         <LoadFocusCard focus={app.loadFocus} />
-        <ProgressionCard progression={app.progression} />
+        <StalenessCard s={app.staleness} />
       </div>
+      <ProgressionCard progression={app.progression} />
       {trends.notes.length > 0 && (
         <div className="card">
           <h2 style={{ marginBottom: 8 }}>What your data says</h2>
