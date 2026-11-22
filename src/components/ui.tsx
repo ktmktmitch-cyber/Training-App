@@ -110,7 +110,7 @@ export function useToast(): [ReactNode, (msg: string) => void] {
   return [msg ? <div className="toast" role="status">{msg}</div> : null, setMsg];
 }
 
-export function Icon({ name, size = 18 }: { name: 'week' | 'season' | 'trends' | 'strength' | 'settings' | 'guide' | 'bolt' | 'sync'; size?: number }) {
+export function Icon({ name, size = 18 }: { name: 'week' | 'season' | 'trends' | 'strength' | 'settings' | 'guide' | 'bolt' | 'sync' | 'library' | 'more'; size?: number }) {
   const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   switch (name) {
     case 'week':
@@ -157,6 +157,22 @@ export function Icon({ name, size = 18 }: { name: 'week' | 'season' | 'trends' |
       return (
         <svg {...p} fill="currentColor" stroke="none">
           <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
+        </svg>
+      );
+    case 'library':
+      return (
+        <svg {...p}>
+          <rect x="3" y="4" width="5" height="16" rx="1" />
+          <rect x="10" y="4" width="5" height="16" rx="1" />
+          <path d="M17.5 5.5l3 14" />
+        </svg>
+      );
+    case 'more':
+      return (
+        <svg {...p}>
+          <circle cx="5" cy="12" r="1.5" />
+          <circle cx="12" cy="12" r="1.5" />
+          <circle cx="19" cy="12" r="1.5" />
         </svg>
       );
     case 'sync':

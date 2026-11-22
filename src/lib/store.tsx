@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { addDays, diffDays, dow, range, today } from '../engine/dates';
 import { computeCompliance, missedKeySessions, type ComplianceDay, type PlanSnapshot } from '../engine/compliance';
-import { allExternalIdsFor, dayToIcuEvents } from '../engine/icuExport';
+import { allExternalIdsFor, dayToIcuEvents, workoutDescription, EXTERNAL_PREFIX } from '../engine/icuExport';
+import { affectedMornings, tagImpacts, type Journal, type MorningEffect, type TagImpact, type TagKey } from '../engine/journal';
 import { computeLoadFocus, type LoadFocus } from '../engine/loadFocus';
+import { analyzePerformance, type PerformanceAnalysis } from '../engine/performance';
 import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
 import { trainingStatus, type TrainingStatus } from '../engine/status';
@@ -16,6 +18,7 @@ import type {
   CalendarEvent,
   CheckIn,
   DayConfig,
+  PlannedWorkout,
   GoalSettings,
   ISODate,
   MacroPlan,
@@ -28,7 +31,7 @@ import type {
   Wellness,
 } from '../engine/types';
 import { DEFAULT_PREFS, DEFAULT_STRENGTH, defaultGoal } from './defaults';
-import { demoData, demoSnapshots } from './demo';
+import { demoData, demoJournal, demoSnapshots } from './demo';
 import { fetchAll, pushEvents, testConnection, type Connection } from './intervals';
 import { load, save } from './storage';
 import { mergeActivities, stravaActivities, stravaStatus, type StravaStatus } from './strava';
@@ -79,7 +82,15 @@ const K = {
   data: 'ta.data.v1',
   feedback: 'ta.feedback.v1',
   history: 'ta.history.v1',
+  journal: 'ta.journal.v1',
+  scheduled: 'ta.scheduled.v1',
 };
+
+export interface Scheduled {
+  workoutId: string;
+  durationMin: number;
+  level: number;
+}
 
 function initialSettings(): AppSettings {
   const t = today();
@@ -141,6 +152,14 @@ interface Ctx {
   power: PowerProfile | null;
   feedback: Record<string, Feedback>;
   setFeedback: (activityId: string, f: Feedback | null) => void;
+  journal: Journal;
+  setJournalTags: (date: ISODate, tags: TagKey[]) => void;
+  effects: Record<ISODate, MorningEffect>;
+  impacts: TagImpact[];
+  performance: PerformanceAnalysis;
+  scheduled: Record<ISODate, Scheduled>;
+  schedule: (date: ISODate, s: Scheduled | null) => void;
+  pushWorkout: (date: ISODate, w: PlannedWorkout) => Promise<string>;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -163,6 +182,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [asOf, setAsOf] = useState(today());
   const [feedback, setFeedbackState] = useState<Record<string, Feedback>>(() => load(K.feedback, {}));
   const [history, setHistory] = useState<Record<ISODate, PlanSnapshot>>(() => load(K.history, {}));
+  const [journalState, setJournalState] = useState<Journal>(() => load(K.journal, {}));
+  const [scheduled, setScheduled] = useState<Record<ISODate, Scheduled>>(() => load(K.scheduled, {}));
+  useEffect(() => save(K.journal, journalState), [journalState]);
+  useEffect(() => save(K.scheduled, scheduled), [scheduled]);
+  const setJournalTags = useCallback(
+    (date: ISODate, tags: TagKey[]) =>
+      setJournalState((j) => {
+        const n = { ...j };
+        if (tags.length) n[date] = tags;
+        else delete n[date];
+        return n;
+      }),
+    [],
+  );
+  const schedule = useCallback(
+    (date: ISODate, sch: Scheduled | null) =>
+      setScheduled((all) => {
+        const n = { ...all };
+        if (sch) n[date] = sch;
+        else delete n[date];
+        return n;
+      }),
+    [],
+  );
   useEffect(() => save(K.feedback, feedback), [feedback]);
   useEffect(() => save(K.history, history), [history]);
   const setFeedback = useCallback(
@@ -278,7 +321,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [settings.usualDays, settings.usualHours],
   );
 
-  const week = weeks[startDate] ?? makeWeek(startDate);
+  const baseWeek = useMemo(() => weeks[startDate] ?? makeWeek(startDate), [weeks, startDate, makeWeek]);
+  const week = useMemo<WeekConfig>(() => {
+    const days = { ...baseWeek.days };
+    for (const d of range(startDate, 7)) {
+      const sc = scheduled[d];
+      if (sc && (!days[d] || days[d].status === 'available'))
+        days[d] = { ...(days[d] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: sc.workoutId, durationMin: sc.durationMin, level: sc.level } };
+    }
+    return { ...baseWeek, days };
+  }, [baseWeek, scheduled, startDate]);
   const setWeek = useCallback((w: WeekConfig) => setWeeks((all) => ({ ...all, [w.startDate]: w })), []);
   const resetWeek = useCallback(() => setWeeks((all) => {
     const n = { ...all };
@@ -299,7 +351,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const journal = useMemo(() => (settings.demo ? { ...demoJournal(asOf), ...journalState } : journalState), [settings.demo, asOf, journalState]);
+  const effects = useMemo(() => affectedMornings(journal), [journal]);
   const checkIn = checkins[asOf] ?? null;
+  // A journal "sick" entry counts as a sick check-in unless you've checked in today
+  const effectiveCheckIn = useMemo<CheckIn | null>(
+    () => checkIn ?? (effects[asOf]?.tags.includes('illness') ? { date: asOf, feel: 'sick' } : null),
+    [checkIn, effects, asOf],
+  );
   const setCheckIn = useCallback(
     (c: CheckIn | null) =>
       setCheckins((all) => {
@@ -317,8 +376,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const macro = useMemo(() => buildMacroPlan(settings.goal, data.events, asOf), [settings.goal, data.events, asOf]);
   const readiness = useMemo(
-    () => assessReadiness(data.wellness, asOf, { checkIn, model: settings.goal.model }),
-    [data.wellness, asOf, checkIn, settings.goal.model],
+    () => assessReadiness(data.wellness, asOf, { checkIn: effectiveCheckIn, model: settings.goal.model, effects }),
+    [data.wellness, asOf, effectiveCheckIn, settings.goal.model, effects],
   );
   const trends = useMemo(() => computeTrends(data.activities, data.wellness, asOf), [data.activities, data.wellness, asOf]);
   const progression = useMemo(() => computeProgression(data.activities, feedback, asOf), [data.activities, feedback, asOf]);
@@ -326,7 +385,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const mw = macroWeekFor(macro, startDate);
     return computeLoadFocus(data.activities, asOf, mw?.phase ?? 'base', settings.goal.eventType);
   }, [data.activities, asOf, macro, startDate, settings.goal.eventType]);
-  const status = useMemo(() => trainingStatus(data.wellness, readiness, asOf), [data.wellness, readiness, asOf]);
+  const performance = useMemo(() => analyzePerformance(data.activities, data.wellness, effProfile, asOf), [data.activities, data.wellness, effProfile, asOf]);
+  const impacts = useMemo(() => tagImpacts(journal, data.wellness, asOf), [journal, data.wellness, asOf]);
+  const status = useMemo(() => trainingStatus(data.wellness, readiness, asOf, performance.improvement), [data.wellness, readiness, asOf, performance.improvement]);
   const snapshots = useMemo(() => (settings.demo ? demoSnapshots(asOf) : history), [settings.demo, asOf, history]);
   const compliance = useMemo(
     () => computeCompliance(range(addDays(asOf, -7), 8), asOf, data.events, data.activities, snapshots),
@@ -384,6 +445,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const canPush = !settings.demo && (Boolean(settings.connection.apiKey) || Boolean(server?.serverIcuKey));
 
+  const pushWorkout = useCallback(
+    async (date: ISODate, w: PlannedWorkout) => {
+      const conn = connection();
+      const ev = {
+        category: 'WORKOUT' as const,
+        start_date_local: `${date}T00:00:00`,
+        type: 'Ride',
+        name: w.name,
+        description: workoutDescription(w, settings.prefs.targetMode),
+        moving_time: Math.round(w.durationMin * 60),
+        icu_training_load: w.tss,
+        external_id: `${EXTERNAL_PREFIX}-${date}-ride`,
+      };
+      await pushEvents(conn, [ev], []);
+      return `Sent “${w.name}” to intervals.icu for ${date}. It will sync to Garmin if “Upload planned workouts” is on.`;
+    },
+    [connection, settings.prefs.targetMode],
+  );
+
   const push = useCallback(
     async (p: WeekPlan) => {
       const conn = connection();
@@ -430,6 +510,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     power,
     feedback,
     setFeedback,
+    journal,
+    setJournalTags,
+    effects,
+    impacts,
+    performance,
+    scheduled,
+    schedule,
+    pushWorkout,
   };
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

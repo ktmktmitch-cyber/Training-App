@@ -111,6 +111,13 @@ interface RawActivity {
   interval_summary?: string[] | null;
   icu_ftp?: number | null;
   icu_variability_index?: number | null;
+  average_temp?: number | null;
+  average_weather_temp?: number | null;
+  trainer?: boolean | null;
+  icu_average_watts?: number | null;
+  icu_pm_ftp?: number | null;
+  icu_pm_ftp_secs?: number | null;
+  icu_pm_ftp_watts?: number | null;
 }
 interface RawEvent {
   id: number | string;
@@ -211,6 +218,12 @@ export function normalizeActivity(a: RawActivity): Activity {
     efforts: parseIntervalSummary(a.interval_summary),
     ftp: a.icu_ftp ?? null,
     vi: a.icu_variability_index ?? null,
+    tempC: a.average_weather_temp ?? a.average_temp ?? null,
+    indoor: Boolean(a.trainer) || type === 'VirtualRide',
+    avgPower: a.icu_average_watts ?? null,
+    pmFtp: a.icu_pm_ftp ?? null,
+    pmFtpSecs: a.icu_pm_ftp_secs ?? null,
+    pmFtpWatts: a.icu_pm_ftp_watts ?? null,
   };
 }
 

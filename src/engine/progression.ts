@@ -71,6 +71,37 @@ export const TEMPLATE_ZONE: Record<string, ProgZone | null> = {
   durability: 'endurance',
   openers: null,
   ftp_test: 'threshold',
+  end_tempo: 'tempo',
+  torque: 'tempo',
+  z2_finish: 'threshold',
+  tempo_bursts: 'tempo',
+  tempo_long: 'tempo',
+  ss_bursts: 'sweetspot',
+  ss_ladder: 'sweetspot',
+  thr_steady: 'threshold',
+  thr_ladder: 'threshold',
+  thr_floats: 'threshold',
+  climb_repeats: 'threshold',
+  vo2_4x4: 'vo2max',
+  vo2_3030: 'vo2max',
+  vo2_pyramid: 'vo2max',
+  vo2_microburst: 'vo2max',
+  anaerobic_2min: 'vo2max',
+  tabata: 'anaerobic',
+  attacks: 'anaerobic',
+  standing_starts: 'anaerobic',
+  leadout_sprints: 'anaerobic',
+  breakaway: 'threshold',
+  xc_start: 'vo2max',
+  road_race_sim: 'threshold',
+  hillclimb_tt: 'threshold',
+  durability_vo2: 'vo2max',
+  ramp_test: null,
+  test_8min: null,
+  test_cp: null,
+  sprint_test: null,
+  recovery_drills: null,
+  race_warmup: null,
 };
 
 /** Minutes → level (1-10). Same scale for completed rides and planned workouts. */
@@ -96,6 +127,7 @@ interface Effort {
   reps: number;
   secs: number;
   pct: number; // % FTP
+  restSecs?: number; // recovery after each rep (known for planned workouts)
 }
 
 const SS_LOW = 84;
@@ -121,18 +153,20 @@ function effortMinutes(efforts: Effort[]): Omit<ZoneMinutes, 'endurance'> {
     if (e.pct >= SS_LOW && e.pct <= SS_HIGH && e.secs >= 180) acc.sweetspot += mins;
     if (z === 3 && e.secs >= 120) acc.threshold += mins;
     if (z === 4) {
+      // Efforts just above threshold (e.g. Seiler 4×8 at ~106%) are part threshold, part VO2
+      const w = Math.min(1, Math.max(0.5, 0.5 + (e.pct - 105) / 15));
       if (e.secs >= 60) {
-        acc.vo2max += mins;
+        acc.vo2max += mins * w;
         acc.threshold += mins * 0.5;
       } else if (e.reps >= 6 && e.secs >= 15) acc.vo2max += mins * 0.75; // short-short VO2 sets
     }
+    // Short repeats with short recoveries (30/15s, 40/20s) are mostly aerobic
+    const shortRepeats = e.secs < 45 && e.reps >= 6 && (e.restSecs == null || e.restSecs <= e.secs * 2);
     if (z === 5 && e.secs >= 15) {
-      // Short repeats (30/15s, 40/20s) are mostly aerobic: full VO2 credit, partial anaerobic
-      const shortRepeats = e.secs < 45 && e.reps >= 6;
       acc.anaerobic += mins * (shortRepeats ? 0.3 : 1);
       if (e.reps >= 6 || e.secs >= 60) acc.vo2max += mins * 0.75;
     }
-    if (z === 6) acc.anaerobic += mins * 0.5;
+    if (z === 6) acc.anaerobic += mins * (e.secs >= 20 ? 1 : 0.5);
   }
   const min = { tempo: 10, sweetspot: 8, threshold: 6, vo2max: 4, anaerobic: 1.5 };
   for (const k of Object.keys(acc) as (keyof typeof acc)[]) if (acc[k] < min[k]) acc[k] = 0;
@@ -175,12 +209,34 @@ export function workoutZoneMinutes(blocks: Block[]): ZoneMinutes {
   const m = empty();
   const efforts: Effort[] = [];
   for (const b of blocks)
-    for (const st of b.steps) {
+    b.steps.forEach((st, i) => {
       const mid = (st.low + st.high) / 2;
       if (zoneOfPct(mid) <= 2) m.endurance += (st.durationSec * b.reps) / 60;
-      efforts.push({ reps: b.reps, secs: st.durationSec, pct: mid });
-    }
+      const next = b.steps[(i + 1) % b.steps.length];
+      const restSecs = b.steps.length > 1 && next !== st ? next.durationSec : undefined;
+      efforts.push({ reps: b.reps, secs: st.durationSec, pct: mid, restSecs });
+    });
   return { ...m, ...effortMinutes(efforts) };
+}
+
+const capable = new Map<string, boolean>();
+/**
+ * Whether a template meaningfully registers on its zone's level scale (structured
+ * intervals do; sprints, race simulations and tests mostly don't). Only capable
+ * templates are levelled by progression and get difficulty labels.
+ */
+export function progressionCapable(t: { id: string; levels: number; minMin: number; maxMin: number; build: (d: number, l: number) => { blocks: Block[] } }): boolean {
+  if (capable.has(t.id)) return capable.get(t.id)!;
+  const zone = TEMPLATE_ZONE[t.id];
+  let ok = false;
+  if (zone && zone !== 'endurance' && t.levels > 1) {
+    const d = Math.max(t.minMin, Math.min(t.maxMin, 150));
+    const hi = workoutLevel(t.id, t.build(d, t.levels - 1).blocks)?.level ?? 0;
+    const lo = workoutLevel(t.id, t.build(d, 0).blocks)?.level ?? 0;
+    ok = hi >= 3 && hi - lo >= 1.5;
+  }
+  capable.set(t.id, ok);
+  return ok;
 }
 
 export function workoutLevel(templateId: string, blocks: Block[]): { zone: ProgZone; level: number } | null {

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { formZone } from '../engine/status';
 import type { CheckIn, Readiness, ReadinessStatus } from '../engine/types';
 import { ScoreRing } from './charts';
@@ -14,7 +15,7 @@ function Factor({ status, label }: { status: ReadinessStatus; label: string }) {
   );
 }
 
-export function ReadinessCard({ r, asOf, checkIn, onCheckIn }: { r: Readiness; asOf: string; checkIn: CheckIn | null; onCheckIn: (c: CheckIn | null) => void }) {
+export function ReadinessCard({ r, asOf, checkIn, onCheckIn, extra }: { r: Readiness; asOf: string; checkIn: CheckIn | null; onCheckIn: (c: CheckIn | null) => void; extra?: ReactNode }) {
   const s = STATUS[r.status];
   const sign = (v: number) => (v > 0 ? `+${Math.round(v)}` : `${Math.round(v)}`);
   const hrvF = r.hrv.status
@@ -96,6 +97,7 @@ export function ReadinessCard({ r, asOf, checkIn, onCheckIn }: { r: Readiness; a
               ]}
             />
           </div>
+          {extra}
         </div>
       </div>
     </div>

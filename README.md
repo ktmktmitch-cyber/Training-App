@@ -10,6 +10,13 @@ An adaptive **cycling + strength planner** that connects to **intervals.icu** (a
 
 Then **one tap sends the week to your intervals.icu calendar as structured workouts**, which intervals.icu syncs on to Garmin Connect (and Zwift/Wahoo if you use them).
 
+### Also included
+
+- **Estimated FTP** from intervals.icu eFTP, your best recent efforts and power at LTHR, with confidence and a one-tap update.
+- **Am I improving?** A heart-rate model fitted to your rides (power + temperature + indoor + form + duration + time) gives fitness trends that aren't fooled by heat or trainer blocks. Combined with eFTP, best efforts and decoupling, it produces a verdict that feeds Training Status.
+- **Behaviour journal**: tag alcohol, travel, late meals, illness, etc. Where biologically justified, those mornings are kept out of your HRV/RHR baseline and 7-day trend. You also see your personal impact per behaviour.
+- **54-workout library** with levels and durations. Any workout (library or recommended) can be added to the plan, **sent to intervals.icu (→ Garmin/Wahoo/Zwift)**, or downloaded as a **Garmin .FIT** (validated with Garmin's FIT SDK), **Zwift .zwo** or **.MRC** file.
+
 ### Borrowed from the best training apps
 
 | Idea | Inspired by |
@@ -98,6 +105,9 @@ src/engine/            pure TypeScript training logic (unit-tested)
   compliance.ts        planned vs done, missed key sessions
   powerProfile.ts      power profile / rider type from CP, W′, Pmax
   zwo.ts               Zwift workout export
+  exporters.ts         Garmin FIT workout encoder + MRC
+  performance.ts       FTP estimate, conditions-adjusted efficiency, improvement verdict
+  journal.ts           behaviour tags, baseline/trend exclusion policy, personal impact
 src/lib/               intervals.icu + Strava clients, storage, app state
 src/pages, components  React UI
 tests/                 vitest

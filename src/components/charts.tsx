@@ -59,8 +59,9 @@ export function LineChart(props: {
   title?: string;
   zones?: Zone[];
   marker?: number; // index of a vertical "today" marker
+  markers?: { index: number; label: string }[]; // annotation triangles along the top
 }) {
-  const { labels, series, band, height = 180, yFormat = (v) => String(Math.round(v)), zeroLine, tickLabel, zones, marker } = props;
+  const { labels, series, band, height = 180, yFormat = (v) => String(Math.round(v)), zeroLine, tickLabel, zones, marker, markers } = props;
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const padL = 36;
@@ -169,6 +170,11 @@ export function LineChart(props: {
         })}
         {zeroLine && min < 0 && max > 0 && <line x1={padL} x2={width - padR} y1={y(0)} y2={y(0)} stroke="var(--axis)" strokeWidth={1} />}
         {marker != null && <line x1={x(marker)} x2={x(marker)} y1={padT} y2={height - padB} stroke="var(--axis)" strokeWidth={1} />}
+        {markers?.map((mk) => (
+          <path key={mk.index} d={`M${x(mk.index) - 4},${padT - 6}L${x(mk.index) + 4},${padT - 6}L${x(mk.index)},${padT}Z`} fill="var(--ink-2)">
+            <title>{`${labels[mk.index]}: ${mk.label}`}</title>
+          </path>
+        ))}
         {bandPath && <path d={bandPath} fill={band!.color} opacity={0.14} />}
         {series.map((s) => (
           <path key={s.name} d={path(s.values)} fill="none" stroke={s.color} strokeWidth={s.width ?? 2} strokeLinejoin="round" strokeLinecap="round" opacity={s.opacity ?? 1} />
@@ -204,6 +210,7 @@ export function LineChart(props: {
               </div>
             ) : null,
           )}
+          {markers?.find((mk) => mk.index === hover) && <div className="muted">▼ {markers.find((mk) => mk.index === hover)!.label}</div>}
           {band && band.low[hover] != null && (
             <div className="muted">
               {band.name}: {yFormat(band.low[hover]!)}–{yFormat(band.high[hover]!)}

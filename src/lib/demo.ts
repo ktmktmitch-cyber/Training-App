@@ -2,6 +2,7 @@
 import { addDays, dow } from '../engine/dates';
 import { ewma } from '../engine/stats';
 import type { PlanSnapshot } from '../engine/compliance';
+import type { Journal } from '../engine/journal';
 import type { Activity, AthleteProfile, CalendarEvent, ISODate, Wellness } from '../engine/types';
 
 function rng(seed: number) {
@@ -57,11 +58,18 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
         tss: Math.round((min / 60) * ifac * ifac * 100),
         intensity: ifac,
         normalizedPower: Math.round(DEMO_PROFILE.ftp! * ifac),
-        avgHr: Math.round(120 + ifac * 40 + (hard ? 5 : 0)),
+        avgHr: Math.round(60 + ifac * 265 * 0.42 + (d === 2 || d === 4 ? 5 : 0) + 0.25 * (8 + 10 * Math.sin((days - i) / 19) - 15) - week * 0.35 + (r() - 0.5) * 3),
         powerZoneSecs: z,
         hrZoneSecs: [z[0] + z[1] * 0.6, z[1] * 0.4 + z[2] * 0.5, z[2] * 0.5, z[3], z[4], z[5], z[6]].map(Math.round),
         source: 'demo',
         ssSecs: Math.round(z[2] * 0.3 + z[3] * 0.7),
+        tempC: Math.round((8 + 10 * Math.sin((days - i) / 19) + r() * 6) * 10) / 10,
+        indoor: d === 2 || d === 4,
+        ftp: 255 + Math.floor(week * 0.8),
+        vi: hard ? 1.08 : 1.03,
+        pmFtp: hard ? Math.round((250 + week * 1.1) * (0.97 + r() * 0.04)) : null,
+        pmFtpSecs: hard ? 300 : null,
+        pmFtpWatts: hard ? Math.round((250 + week * 1.1) * 1.24) : null,
         decoupling: ifac < 0.75 && min >= 75 ? Math.round((3 + r() * 5) * 10) / 10 : null,
         efficiencyFactor: Math.round((1.38 + week * 0.004 + r() * 0.05) * 1000) / 1000,
         rpe,
@@ -95,8 +103,10 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
     ctl = ewma(ctl, load, 42);
     atl = ewma(atl, load, 7);
     const fatigue = atl - ctl;
-    const hrv = Math.round(Math.exp(Math.log(62) - fatigue * 0.008 + (r() - 0.5) * 0.18));
-    const rhr = Math.round(48 + fatigue * 0.08 + (r() - 0.5) * 3);
+    // demo journal nights (see demoJournal): 3+ drinks affects two mornings, 1-2 drinks one
+    const boozy = i === 9 || i === 23 ? 1 : i === 8 ? 0.5 : 0;
+    const hrv = Math.round(Math.exp(Math.log(62) - fatigue * 0.008 + (r() - 0.5) * 0.18) * (1 - 0.28 * boozy));
+    const rhr = Math.round(48 + fatigue * 0.08 + (r() - 0.5) * 3 + 5 * boozy);
     wellness.push({
       date,
       hrv,
@@ -111,7 +121,7 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
       stress: null,
       mood: null,
       motivation: null,
-      eftp: 268,
+      eftp: Math.round(255 + week * 0.9),
     });
   }
   for (let i = 7; i < wellness.length; i++) wellness[i].rampRate = (wellness[i].ctl ?? 0) - (wellness[i - 7].ctl ?? 0);
@@ -136,4 +146,9 @@ export function demoSnapshots(asOf: ISODate): Record<ISODate, PlanSnapshot> {
     if (p) out[date] = { date, ...p };
   }
   return out;
+}
+
+/** Two tagged nights in the demo so the journal and baseline exclusions are visible. */
+export function demoJournal(asOf: ISODate): Journal {
+  return { [addDays(asOf, -10)]: ['alcohol_heavy'], [addDays(asOf, -24)]: ['alcohol_light'] };
 }

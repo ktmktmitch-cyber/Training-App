@@ -51,6 +51,12 @@ export interface Activity {
   efforts?: { reps: number; secs: number; watts: number }[] | null; // intervals.icu detected intervals
   ftp?: number | null; // FTP at the time of the activity
   vi?: number | null; // variability index
+  tempC?: number | null; // average temperature during the ride
+  indoor?: boolean; // trainer / virtual ride
+  avgPower?: number | null;
+  pmFtp?: number | null; // intervals.icu per-ride power-model FTP estimate
+  pmFtpSecs?: number | null; // duration of the effort that defines it
+  pmFtpWatts?: number | null; // power of that effort
 }
 
 export interface Wellness {

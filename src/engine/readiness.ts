@@ -10,11 +10,14 @@
 //  * Convergent signals (HRV down AND RHR up) carry more weight than either alone.
 import { addDays, diffDays } from './dates';
 import { clamp, mean, round, sd } from './stats';
+import { TAG_BY_KEY, type MorningEffect } from './journal';
 import type { CheckIn, ISODate, PeriodizationModel, Readiness, ReadinessFlag, Wellness } from './types';
 
 interface Opts {
   checkIn?: CheckIn | null;
   model?: PeriodizationModel;
+  /** Journal effects keyed by morning date (see journal.ts) */
+  effects?: Record<ISODate, MorningEffect>;
 }
 
 function inWindow(w: Wellness, from: ISODate, to: ISODate) {
@@ -30,13 +33,21 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
   const todayW = wellness.find((w) => w.date === asOf) ?? null;
   const latest = [...wellness].reverse().find((w) => w.ctl != null) ?? null;
 
+  const eff = opts.effects ?? {};
+  const okBase = (w: Wellness) => !eff[w.date]?.excludeBaseline;
+  const okTrend = (w: Wellness) => !eff[w.date]?.excludeTrend;
+  const explainedToday = eff[asOf]?.tags.filter((t) => TAG_BY_KEY[t]?.excludeTrend) ?? [];
+  const explainLabel = explainedToday.map((t) => TAG_BY_KEY[t].short.toLowerCase()).join(' + ');
+
   // ---------- HRV ----------
   const hrvPts = wellness.filter((w) => w.hrv && w.hrv > 0) as (Wellness & { hrv: number })[];
-  const recent = hrvPts.filter((w) => inWindow(w, addDays(asOf, -6), asOf));
-  let baseWin = hrvPts.filter((w) => inWindow(w, addDays(asOf, -67), addDays(asOf, -7)));
+  const recentAll = hrvPts.filter((w) => inWindow(w, addDays(asOf, -6), asOf));
+  const recentClean = recentAll.filter(okTrend);
+  const recent = recentClean.length >= 3 ? recentClean : recentAll;
+  let baseWin = hrvPts.filter((w) => okBase(w) && inWindow(w, addDays(asOf, -67), addDays(asOf, -7)));
   let shortBaseline = false;
   if (baseWin.length < 14) {
-    baseWin = hrvPts.filter((w) => inWindow(w, addDays(asOf, -60), asOf));
+    baseWin = hrvPts.filter((w) => okBase(w) && inWindow(w, addDays(asOf, -60), asOf));
     shortBaseline = true;
   }
   const hrv: Readiness['hrv'] = { today: null, avg7: null, baseline: null, low: null, high: null, cv7: null, trend: null, status: null };
@@ -59,7 +70,7 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
     const todayHrv = todayW?.hrv ?? null;
     hrv.today = todayHrv;
 
-    const prev = hrvPts.filter((w) => inWindow(w, addDays(asOf, -13), addDays(asOf, -7))).map((w) => Math.log(w.hrv));
+    const prev = hrvPts.filter((w) => okTrend(w) && inWindow(w, addDays(asOf, -13), addDays(asOf, -7))).map((w) => Math.log(w.hrv));
     if (prev.length >= 3) {
       const d = avg7 - mean(prev);
       hrv.trend = d > 0.25 * sigma ? 'up' : d < -0.25 * sigma ? 'down' : 'flat';
@@ -99,18 +110,28 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
       });
     }
     if (todayHrv && Math.log(todayHrv) < mu - 1.5 * sigma) {
-      score -= 10;
-      flags.push({
-        id: 'hrv-today',
-        level: 'warn',
-        title: 'Low HRV this morning',
-        detail: `Today's HRV (${todayHrv} ms) is unusually low. One low reading is not a trend, but consider a softer start to the week.`,
-      });
+      if (explainedToday.length) {
+        score -= 4;
+        flags.push({
+          id: 'hrv-today',
+          level: 'info',
+          title: `Low HRV this morning — explained (${explainLabel})`,
+          detail: `Today's HRV (${todayHrv} ms) is low, most likely from ${explainLabel}, not accumulated training fatigue, so it's left out of your 7-day trend. You may still feel flat today — swap to an easier option if so.`,
+        });
+      } else {
+        score -= 10;
+        flags.push({
+          id: 'hrv-today',
+          level: 'warn',
+          title: 'Low HRV this morning',
+          detail: `Today's HRV (${todayHrv} ms) is unusually low. One low reading is not a trend, but consider a softer start to the week. If something explains it (alcohol, travel, a late meal), log it in the journal.`,
+        });
+      }
     }
     // Rolling CV: day-to-day instability often precedes a drop in the average
     const baseCvs: number[] = [];
     for (let i = 7; i <= 60; i += 7) {
-      const win = hrvPts.filter((w) => inWindow(w, addDays(asOf, -i - 6), addDays(asOf, -i))).map((w) => Math.log(w.hrv));
+      const win = hrvPts.filter((w) => okTrend(w) && inWindow(w, addDays(asOf, -i - 6), addDays(asOf, -i))).map((w) => Math.log(w.hrv));
       if (win.length >= 4) baseCvs.push((sd(win) / mean(win)) * 100);
     }
     if (hrv.cv7 != null && baseCvs.length >= 3) {
@@ -137,9 +158,11 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
 
   // ---------- Resting HR ----------
   const rhrPts = wellness.filter((w) => w.rhr && w.rhr > 0) as (Wellness & { rhr: number })[];
-  const rhrRecent = rhrPts.filter((w) => inWindow(w, addDays(asOf, -6), asOf)).map((w) => w.rhr);
-  let rhrBaseWin = rhrPts.filter((w) => inWindow(w, addDays(asOf, -67), addDays(asOf, -7))).map((w) => w.rhr);
-  if (rhrBaseWin.length < 14) rhrBaseWin = rhrPts.filter((w) => inWindow(w, addDays(asOf, -60), asOf)).map((w) => w.rhr);
+  const rhrRecentAll = rhrPts.filter((w) => inWindow(w, addDays(asOf, -6), asOf));
+  const rhrRecentClean = rhrRecentAll.filter(okTrend);
+  const rhrRecent = (rhrRecentClean.length >= 3 ? rhrRecentClean : rhrRecentAll).map((w) => w.rhr);
+  let rhrBaseWin = rhrPts.filter((w) => okBase(w) && inWindow(w, addDays(asOf, -67), addDays(asOf, -7))).map((w) => w.rhr);
+  if (rhrBaseWin.length < 14) rhrBaseWin = rhrPts.filter((w) => okBase(w) && inWindow(w, addDays(asOf, -60), asOf)).map((w) => w.rhr);
   const rhr: Readiness['rhr'] = { today: todayW?.rhr ?? null, avg7: null, baseline: null, sd: null };
   let rhrHigh = false;
   if (rhrRecent.length >= 3 && rhrBaseWin.length >= 7) {
@@ -175,14 +198,24 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
       });
     }
     if (rhr.today != null && rhr.today > mu + Math.max(1.5 * sigma, 5)) {
-      score -= 10;
-      rhrHigh = true;
-      flags.push({
-        id: 'rhr-today',
-        level: 'warn',
-        title: 'High resting HR this morning',
-        detail: `Today's resting HR (${rhr.today} bpm) is ${round(rhr.today - mu)} bpm above baseline.`,
-      });
+      if (explainedToday.length) {
+        score -= 3;
+        flags.push({
+          id: 'rhr-today',
+          level: 'info',
+          title: `High resting HR this morning — explained (${explainLabel})`,
+          detail: `Today's resting HR (${rhr.today} bpm) is ${round(rhr.today - mu)} bpm above baseline, consistent with ${explainLabel}. Left out of your trend.`,
+        });
+      } else {
+        score -= 10;
+        rhrHigh = true;
+        flags.push({
+          id: 'rhr-today',
+          level: 'warn',
+          title: 'High resting HR this morning',
+          detail: `Today's resting HR (${rhr.today} bpm) is ${round(rhr.today - mu)} bpm above baseline.`,
+        });
+      }
     }
   }
   if (hrvBelow && rhrHigh) {
@@ -192,6 +225,19 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
       level: 'bad',
       title: 'HRV down and resting HR up',
       detail: 'Both markers point the same way, which is a more reliable fatigue signal than either alone.',
+    });
+  }
+
+  // ---------- Journal exclusions summary ----------
+  const excludedBase = Object.entries(eff).filter(([d, e]) => e.excludeBaseline && diffDays(asOf, d) >= 0 && diffDays(asOf, d) <= 67);
+  if (excludedBase.length) {
+    const counts: Record<string, number> = {};
+    for (const [, e] of excludedBase) for (const t of e.tags) if (TAG_BY_KEY[t]?.excludeBaseline) counts[TAG_BY_KEY[t].short] = (counts[TAG_BY_KEY[t].short] ?? 0) + 1;
+    flags.push({
+      id: 'journal-excluded',
+      level: 'info',
+      title: `${excludedBase.length} night${excludedBase.length === 1 ? '' : 's'} kept out of your baseline`,
+      detail: `From your journal: ${Object.entries(counts).map(([k, v]) => `${k} ×${v}`).join(', ')}. Your normal ranges reflect typical nights only.`,
     });
   }
 

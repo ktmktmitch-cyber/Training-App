@@ -36,6 +36,28 @@ export function GuidePage() {
           <li><b>Workout files (TrainingPeaks, JOIN):</b> download any session as a Zwift .zwo, or send the week to intervals.icu so it lands on your Garmin.</li>
         </ul>
 
+        <h2>FTP estimate & “am I improving?”</h2>
+        <ul>
+          <li><b>Estimated FTP</b> blends three sources: intervals.icu eFTP (your power-duration curve), your best recent effort (the effort behind intervals.icu’s per-ride power model, or a long detected interval), and a sub-maximal heart-rate estimate, power at your LTHR. Agreement between them sets the confidence. If your FTP setting is ≥3% off, the app suggests a new value.</li>
+          <li><b>Conditions-adjusted efficiency:</b> heart rate at a given power rises with heat, indoors (less cooling), with ride duration (cardiac drift) and changes with fatigue. A regression of heart rate on power + temperature + indoor + form (TSB) + duration + time, fitted to your own rides, separates those effects. The time term is your real fitness trend (watts gained per month at the same heart rate), so a heatwave or a block of trainer rides doesn’t look like lost fitness.</li>
+          <li><b>Verdict</b> combines eFTP change, adjusted efficiency, best efforts vs the previous 6 weeks and aerobic decoupling. It feeds the Training Status (rising load with falling performance shows as Unproductive).</li>
+        </ul>
+
+        <h2>Behaviour journal & baselines</h2>
+        <ul>
+          <li>Log what happened the evening before an odd reading: alcohol (1-2 or 3+ drinks), late meal, late caffeine, travel/jet lag, altitude, heat/sauna, illness, vaccination, disturbed sleep, stress, a late hard workout.</li>
+          <li><b>Baseline</b> (your normal range) reflects typical nights. Transient, external perturbations are excluded: alcohol (dose-dependent drop in nocturnal HRV and rise in sleeping HR, with heavier intake affecting a second night), circadian disruption, acute hypoxia, heat, digestion, the immune response, and illness.</li>
+          <li><b>7-day trend</b> asks whether training fatigue is building. Transient confounders are excluded, but <b>illness, disturbed sleep and stress are kept</b> because they genuinely reduce what you can absorb. Stress and late workouts are never excluded from the baseline: they’re real, recurring load.</li>
+          <li>The tagged morning still counts: you’re told the low reading is explained, with only a small readiness penalty. A journal “Sick” entry acts like a sick check-in.</li>
+          <li>After a few entries, the journal shows your personal effect of each behaviour (e.g. HRV −20%, resting HR +4 bpm the morning after 3+ drinks).</li>
+        </ul>
+
+        <h2>Library & exports</h2>
+        <ul>
+          <li>54 workouts covering recovery, endurance, tempo, sweet spot, threshold, VO2max (30/15, 30/30, 4×4, 4×8, pyramids, microbursts, fast-start), anaerobic (1- and 2-minute repeats, Tabata), sprints, race simulations (crit, road race, breakaway, climbing, TT, gravel, XC/CX starts), durability rides, tests (ramp, 20-min, 8-min, CP 3+12, sprint), openers and warm-ups. Most scale across levels and durations.</li>
+          <li>Any workout, picked from the library or recommended in your plan, can be: added to your plan on any date (the week re-plans around it), sent to intervals.icu (which syncs to Garmin Connect, Wahoo and Zwift), downloaded as a <b>Garmin .FIT</b> workout (copy to <code>Garmin/NewFiles</code> over USB), a <b>Zwift .zwo</b>, an <b>.MRC</b> file for other indoor apps, or copied as intervals.icu text.</li>
+        </ul>
+
         <h2>Macro periodization options</h2>
         <ul>
           <li><b>Traditional (linear):</b> prep → base (Zone 2 + tempo/sweet spot) → build (threshold + VO2max) → peak (race-specific) → taper. 3:1 load:recovery by default.</li>
@@ -94,6 +116,10 @@ export function GuidePage() {
           <li>Rønnestad BR, Mujika I (2014). Optimizing strength training for running and cycling endurance performance: a review. Scand J Med Sci Sports.</li>
           <li>Vikmoen O et al. (2016). Strength training improves cycling performance, fractional utilization of VO2max and cycling economy in female cyclists. Scand J Med Sci Sports.</li>
           <li>Rønnestad BR et al. (2010). In-season strength maintenance training increases well-trained cyclists’ performance. Eur J Appl Physiol.</li>
+          <li>Helgerud J et al. (2007). Aerobic high-intensity intervals improve VO2max more than moderate training. Med Sci Sports Exerc.</li>
+          <li>Tabata I et al. (1996). Effects of moderate-intensity endurance and high-intensity intermittent training on anaerobic capacity and VO2max. Med Sci Sports Exerc.</li>
+          <li>Pietilä J et al. (2018). Acute effect of alcohol intake on cardiovascular autonomic regulation during the first hours of sleep in a large real-world sample of Finnish employees. JMIR Ment Health.</li>
+          <li>Altini M, Plews D (2021). What is behind changes in resting heart rate and heart rate variability? A large-scale analysis of longitudinal measurements acquired in free-living. Sensors.</li>
           <li>Impellizzeri FM et al. (2020). Acute:chronic workload ratio: conceptual issues and fundamental pitfalls. Int J Sports Physiol Perform. (Why this app uses CTL ramp rate, not ACWR.)</li>
         </ul>
       </div>

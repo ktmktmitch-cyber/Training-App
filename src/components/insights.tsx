@@ -7,8 +7,8 @@ import { POWER_LABEL, type PowerKey, type PowerProfile } from '../engine/powerPr
 import { DIFFICULTY_LABEL, FEEDBACK_LABEL, PROG_LABEL, PROG_ZONES, rpeToFeedback, type Difficulty, type Feedback, type Progression } from '../engine/progression';
 import type { TrainingStatus } from '../engine/status';
 import type { PlannedDay, Readiness, Trends } from '../engine/types';
-import { workoutToZwo } from '../engine/zwo';
 import { Skyline } from './charts';
+import { ExportBar } from './ExportBar';
 import { CATEGORY_LABEL, IntensityChip, STATUS, StatusIcon } from './ui';
 
 const TONE_STATUS = { good: 'green', neutral: 'unknown', warn: 'amber', bad: 'red' } as const;
@@ -39,15 +39,6 @@ export function DifficultyChip({ difficulty, level }: { difficulty: string | nul
   );
 }
 
-export function downloadZwo(name: string, xml: string) {
-  const blob = new Blob([xml], { type: 'application/xml' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${name.replace(/[^\w\-× ]+/g, '').replace(/\s+/g, '_')}.zwo`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
 // ---------- Next workout hero (Garmin daily suggested workout / JOIN "today") ----------
 export function NextWorkoutCard(props: {
   day: PlannedDay;
@@ -58,6 +49,7 @@ export function NextWorkoutCard(props: {
   progression: Progression;
   weightKg: number | null;
   onPick: (templateId: string, durationMin: number, level: number) => void;
+  onToast?: (msg: string) => void;
 }) {
   const { day, readiness, status, ftp, isToday, progression } = props;
   const r = day.ride;
@@ -120,12 +112,12 @@ export function NextWorkoutCard(props: {
                 {a.label}
               </button>
             ))}
-            {r.blocks.length > 0 && (
-              <button className="btn sm ghost" onClick={() => downloadZwo(r.name, workoutToZwo(r))} title="Zwift / indoor-trainer workout file">
-                Download .zwo
-              </button>
-            )}
           </div>
+          {r.blocks.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <ExportBar workout={r} date={day.date} onDone={props.onToast} compact />
+            </div>
+          )}
         </>
       ) : (
         <p className="small ink2" style={{ marginTop: 8 }}>

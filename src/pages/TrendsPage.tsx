@@ -1,10 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { addDays, diffDays, fmtShort } from '../engine/dates';
 import { mean, projectLoad, round, sd } from '../engine/stats';
 import { FORM_ZONES } from '../engine/status';
 import { loadSeries } from '../engine/trends';
 import { BarChart, LineChart } from '../components/charts';
 import { AerobicCard, LoadFocusCard, PowerProfileCard, ProgressionCard, StatusChip } from '../components/insights';
+import { JournalCard } from '../components/JournalCard';
+import { BestEffortsCard, EfficiencyCard, FtpCard, ImprovementCard } from '../components/performance';
+import { Seg, useToast } from '../components/ui';
+import { TAG_BY_KEY } from '../engine/journal';
 import { useApp } from '../lib/store';
 
 function rolling(vals: (number | null)[], n: number): (number | null)[] {
@@ -14,9 +18,17 @@ function rolling(vals: (number | null)[], n: number): (number | null)[] {
   });
 }
 
+type Tab = 'performance' | 'recovery' | 'load';
+
 export function TrendsPage() {
   const app = useApp();
-  const { data, trends, asOf } = app;
+  const { data, trends, asOf, effects } = app;
+  const [toast, showToast] = useToast();
+  const [tab, setTab] = useState<Tab>(() => {
+    const q = window.location.hash.split('?')[1];
+    const t = q ? new URLSearchParams(q).get('tab') : null;
+    return t === 'recovery' || t === 'load' ? t : 'performance';
+  });
   const days = 90;
   const dates = useMemo(() => Array.from({ length: days }, (_, i) => addDays(asOf, -(days - 1 - i))), [asOf]);
   const byDate = useMemo(() => new Map(data.wellness.map((w) => [w.date, w])), [data.wellness]);
@@ -24,12 +36,18 @@ export function TrendsPage() {
 
   const hrv = dates.map((d) => byDate.get(d)?.hrv ?? null);
   const rhr = dates.map((d) => byDate.get(d)?.rhr ?? null);
-  const hrv7 = rolling(hrv, 7);
-  const rhr7 = rolling(rhr, 7);
+  // Journal: explained nights are left out of the 7-day trend and the baseline band
+  const inTrend = (d: string) => !effects[d]?.excludeTrend;
+  const inBase = (d: string) => !effects[d]?.excludeBaseline;
+  const hrv7 = rolling(dates.map((d, i) => (inTrend(d) ? hrv[i] : null)), 7);
+  const rhr7 = rolling(dates.map((d, i) => (inTrend(d) ? rhr[i] : null)), 7);
+  const markers = dates
+    .map((d, i) => (effects[d] ? { index: i, label: `${effects[d].tags.map((t) => TAG_BY_KEY[t]?.short).join(', ')}${effects[d].excludeBaseline ? ' — excluded from baseline' : ''}` } : null))
+    .filter((x): x is { index: number; label: string } => x != null);
   // Rolling normal range: 60-day baseline (ending 7 days before) ± 0.5 SD in ln space
   const hrvBand = dates.map((d) => {
     const base = data.wellness
-      .filter((w) => w.hrv && diffDays(d, w.date) >= 7 && diffDays(d, w.date) <= 67)
+      .filter((w) => w.hrv && inBase(w.date) && diffDays(d, w.date) >= 7 && diffDays(d, w.date) <= 67)
       .map((w) => Math.log(w.hrv as number));
     if (base.length < 14) return { low: null, high: null };
     const mu = mean(base);
@@ -37,7 +55,7 @@ export function TrendsPage() {
     return { low: round(Math.exp(mu - 0.5 * s), 1), high: round(Math.exp(mu + 0.5 * s), 1) };
   });
   const rhrBand = dates.map((d) => {
-    const base = data.wellness.filter((w) => w.rhr && diffDays(d, w.date) >= 7 && diffDays(d, w.date) <= 67).map((w) => w.rhr as number);
+    const base = data.wellness.filter((w) => w.rhr && inBase(w.date) && diffDays(d, w.date) >= 7 && diffDays(d, w.date) <= 67).map((w) => w.rhr as number);
     if (base.length < 14) return { low: null, high: null };
     const mu = mean(base);
     const s = Math.max(sd(base), 1.5);
@@ -74,13 +92,45 @@ export function TrendsPage() {
   return (
     <>
       <div className="row">
-        <h1>Trends</h1>
+        <h1>Progress</h1>
         <span className="spacer" />
         <StatusChip status={app.status} />
       </div>
       <p className="small ink2" style={{ marginTop: -8 }}>
         <b>{app.status.label}:</b> {app.status.detail}
       </p>
+      <Seg<Tab>
+        value={tab}
+        onChange={setTab}
+        ariaLabel="Progress section"
+        options={[
+          { value: 'performance', label: 'Performance & FTP' },
+          { value: 'recovery', label: 'Recovery & journal' },
+          { value: 'load', label: 'Training load' },
+        ]}
+      />
+      {tab === 'performance' && (
+        <>
+          <div className="grid-2">
+            <FtpCard
+              perf={app.performance}
+              onUse={(w) => {
+                app.updateSettings((s) => ({ ...s, ftpOverride: w }));
+                showToast(`FTP set to ${w} W in this app. Update it in intervals.icu too so its zones and TSS match.`);
+              }}
+            />
+            <ImprovementCard perf={app.performance} />
+          </div>
+          <EfficiencyCard perf={app.performance} />
+          <div className="grid-2">
+            <BestEffortsCard perf={app.performance} />
+            <PowerProfileCard power={app.power} />
+          </div>
+          <AerobicCard trends={trends} />
+        </>
+      )}
+      {tab === 'load' && (
+      <>
       <div className="grid-2">
         <LoadFocusCard focus={app.loadFocus} />
         <ProgressionCard progression={app.progression} />
@@ -95,6 +145,10 @@ export function TrendsPage() {
           </ul>
         </div>
       )}
+      </>
+      )}
+      {tab === 'recovery' && (
+      <>
       <div className="grid-2">
         <div className="card">
           <div className="card-head">
@@ -111,6 +165,7 @@ export function TrendsPage() {
               ]}
               band={{ low: hrvBand.map((b) => b.low), high: hrvBand.map((b) => b.high), color: 'var(--s1)', name: 'Normal range' }}
               yFormat={(v) => `${Math.round(v)}`}
+              markers={markers}
             />
           ) : (
             <p className="muted">No HRV data. Enable Garmin (or Oura/Whoop/HRV4Training) wellness sync in intervals.icu.</p>
@@ -130,11 +185,19 @@ export function TrendsPage() {
                 { name: '7-day average', color: 'var(--s1)', values: rhr7 },
               ]}
               band={{ low: rhrBand.map((b) => b.low), high: rhrBand.map((b) => b.high), color: 'var(--s1)', name: 'Baseline ±1 SD' }}
+              markers={markers}
             />
           ) : (
             <p className="muted">No resting HR data yet.</p>
           )}
         </div>
+      </div>
+      {markers.length > 0 && <p className="tiny muted" style={{ marginTop: -6 }}>▼ = journal-tagged mornings. Excluded nights don’t shape the normal range or the 7-day average.</p>}
+      <JournalCard journal={app.journal} onChange={app.setJournalTags} impacts={app.impacts} asOf={asOf} />
+      </>
+      )}
+      {tab === 'load' && (
+      <div className="grid-2">
         <div className="card">
           <div className="card-head">
             <h2>Fitness & fatigue</h2>
@@ -251,9 +314,9 @@ export function TrendsPage() {
             <p className="muted">No zone data yet.</p>
           )}
         </div>
-        <PowerProfileCard power={app.power} />
-        <AerobicCard trends={trends} />
       </div>
+      )}
+      {toast}
     </>
   );
 }

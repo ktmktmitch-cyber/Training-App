@@ -27,7 +27,12 @@ const LABEL: Record<StatusKey, string> = {
   unknown: 'Not enough data',
 };
 
-export function trainingStatus(wellness: Wellness[], readiness: Readiness, asOf: ISODate): TrainingStatus {
+export function trainingStatus(
+  wellness: Wellness[],
+  readiness: Readiness,
+  asOf: ISODate,
+  perf?: { verdict: 'improving' | 'stable' | 'declining' | 'unknown'; summary?: string } | null,
+): TrainingStatus {
   const sorted = [...wellness].filter((w) => diffDays(asOf, w.date) >= 0).sort((a, b) => a.date.localeCompare(b.date));
   const at = (daysAgo: number) => {
     const target = addDays(asOf, -daysAgo);
@@ -54,19 +59,23 @@ export function trainingStatus(wellness: Wellness[], readiness: Readiness, asOf:
   else if (ctlDelta28 < -0.12 * prev.ctl && tsb > 0) key = 'detraining';
   else if (tsb >= 5 && tsb <= 25 && ctl >= 0.92 * max90) key = 'peaking';
   else if (tsb > 5 && ramp < 0) key = 'recovery';
-  else if (ctlDelta28 > 2 && eftpDelta28 != null && eftpDelta28 < -2) key = 'unproductive';
+  else if (ctlDelta28 > 2 && ((eftpDelta28 != null && eftpDelta28 < -2) || perf?.verdict === 'declining')) key = 'unproductive';
   else if (ctlDelta28 > 2) key = 'productive';
+  else if (perf?.verdict === 'improving') key = 'productive';
   else key = 'maintaining';
 
   const ft = eftpDelta28 != null ? ` eFTP ${eftpDelta28 >= 0 ? '+' : ''}${eftpDelta28}% over 4 weeks.` : '';
   const detail: Record<StatusKey, string> = {
-    productive: `Fitness (CTL) up ${ctlDelta28} in 4 weeks and you’re absorbing it.${ft}`,
+    productive:
+      ctlDelta28 > 2
+        ? `Fitness (CTL) up ${ctlDelta28} in 4 weeks and you’re absorbing it.${ft}`
+        : `Load is steady (${ctlDelta28 >= 0 ? '+' : ''}${ctlDelta28} CTL) but your performance markers are improving.${ft}`,
     maintaining: `Fitness stable (${ctlDelta28 >= 0 ? '+' : ''}${ctlDelta28} CTL in 4 weeks). Add load to keep improving.${ft}`,
     peaking: `Fresh (form +${round(tsb)}) with fitness near its 90-day high — ideal for racing or testing.`,
     recovery: `Lighter training lately (form +${round(tsb)}). Good for absorbing a block; expect to build again.`,
     overreaching: `Very high fatigue (form ${round(tsb)}). Recover before adding more load.`,
     strained: 'HRV is suppressed without a big jump in load — likely life stress, illness or poor sleep. Keep things easy.',
-    unproductive: `Load is rising but eFTP is falling (${eftpDelta28}%) — recovery may not be keeping up.`,
+    unproductive: `Load is rising but performance is falling${eftpDelta28 != null && eftpDelta28 < -2 ? ` (eFTP ${eftpDelta28}%)` : ''} — recovery may not be keeping up.`,
     detraining: `Fitness dropped ${Math.abs(ctlDelta28)} CTL in 4 weeks. Consistency matters more than any single workout.`,
     unknown: '',
   };

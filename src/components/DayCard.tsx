@@ -4,9 +4,9 @@ import type { AthleteProfile, Block, PlannedDay, TargetMode } from '../engine/ty
 import { workoutAlternatives } from '../engine/planner';
 import { DIFFICULTY_LABEL, type Difficulty, type Progression } from '../engine/progression';
 import { WORKOUTS } from '../engine/workouts';
-import { workoutToZwo } from '../engine/zwo';
 import { Skyline } from './charts';
-import { DifficultyChip, downloadZwo } from './insights';
+import { ExportBar } from './ExportBar';
+import { DifficultyChip } from './insights';
 import { CATEGORY_LABEL, hrFor, IntensityChip, watts } from './ui';
 
 function fmtStep(sec: number) {
@@ -16,7 +16,7 @@ function fmtStep(sec: number) {
   return s ? `${m}:${String(s).padStart(2, '0')}` : `${m} min`;
 }
 
-function StepsTable({ blocks, ftp, profile, mode }: { blocks: Block[]; ftp: number; profile: AthleteProfile | null; mode: TargetMode }) {
+export function StepsTable({ blocks, ftp, profile, mode }: { blocks: Block[]; ftp: number; profile: AthleteProfile | null; mode: TargetMode }) {
   return (
     <div className="table-wrap">
       <table className="steps">
@@ -83,6 +83,7 @@ export function DayCard(props: {
   onSwap: (templateId: string, durationMin: number, level?: number) => void;
   onRest: () => void;
   onReset: () => void;
+  onToast?: (msg: string) => void;
 }) {
   const { day, ftp, profile, mode, isToday, customized } = props;
   const [open, setOpen] = useState(false);
@@ -266,12 +267,8 @@ export function DayCard(props: {
                 Reset day
               </button>
             )}
-            {r && r.blocks.length > 0 && (
-              <button className="btn sm ghost" onClick={() => downloadZwo(r.name, workoutToZwo(r))}>
-                Download .zwo
-              </button>
-            )}
           </div>
+          {r && r.blocks.length > 0 && <ExportBar workout={r} date={day.date} onDone={props.onToast} />}
         </div>
       )}
     </div>

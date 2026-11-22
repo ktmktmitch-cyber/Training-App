@@ -5,6 +5,7 @@ import { PHASE_LABELS } from '../engine/periodization';
 import type { DayConfig } from '../engine/types';
 import { DayCard } from '../components/DayCard';
 import { ComplianceStrip, NextWorkoutCard } from '../components/insights';
+import { TagPicker } from '../components/JournalCard';
 import { ReadinessCard } from '../components/ReadinessCard';
 import { Seg, useToast } from '../components/ui';
 import { WeekSetup } from '../components/WeekSetup';
@@ -93,9 +94,26 @@ export function WeekPage() {
         progression={app.progression}
         weightKg={app.profile?.weightKg ?? null}
         onPick={(id, dur, level) => setDay(plan.days[0].date, { ...(week.days[plan.days[0].date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
+        onToast={showToast}
       />
 
-      <ReadinessCard r={app.readiness} asOf={app.asOf} checkIn={app.checkIn} onCheckIn={app.setCheckIn} />
+      <ReadinessCard
+        r={app.readiness}
+        asOf={app.asOf}
+        checkIn={app.checkIn}
+        onCheckIn={app.setCheckIn}
+        extra={
+          <details className="more" open={Boolean(app.journal[addDays(app.asOf, -1)]?.length)}>
+            <summary>Anything unusual yesterday? (alcohol, travel, late meal…)</summary>
+            <div style={{ marginTop: 8 }}>
+              <TagPicker date={addDays(app.asOf, -1)} journal={app.journal} onChange={app.setJournalTags} />
+              <p className="tiny muted" style={{ marginTop: 6 }}>
+                Explains this morning’s HRV / resting HR. Where it’s biologically justified, the night is kept out of your baseline and 7-day trend. <a href="#/progress?tab=recovery">Journal & personal impact →</a>
+              </p>
+            </div>
+          </details>
+        }
+      />
 
       <ComplianceStrip days={app.compliance} feedback={app.feedback} onFeedback={app.setFeedback} />
 
@@ -158,9 +176,13 @@ export function WeekPage() {
             isToday={d.date === app.asOf}
             customized={!!week.days[d.date] && week.days[d.date].status !== 'available'}
             progression={app.progression}
+            onToast={showToast}
             onSwap={(id, dur, level) => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
             onRest={() => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'off' })}
-            onReset={() => setDay(d.date, null)}
+            onReset={() => {
+              setDay(d.date, null);
+              app.schedule(d.date, null);
+            }}
           />
         ))}
       </div>

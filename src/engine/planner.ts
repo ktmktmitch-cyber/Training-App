@@ -33,7 +33,7 @@ import type {
   WeekPlan,
 } from './types';
 import type { LoadFocus } from './loadFocus';
-import { DIFFICULTY_LABEL, difficultyOf, PROG_LABEL, TEMPLATE_ZONE, workoutLevel, type Difficulty, type ProgZone, type Progression } from './progression';
+import { DIFFICULTY_LABEL, difficultyOf, PROG_LABEL, progressionCapable, TEMPLATE_ZONE, workoutLevel, type Difficulty, type ProgZone, type Progression } from './progression';
 import { blocksLoad, getTemplate, GROUP_IF, tssFromIf, WORKOUT_BY_ID, type WorkoutTemplate } from './workouts';
 
 export interface PlanInput {
@@ -129,7 +129,7 @@ export function instantiate(
   const wl = workoutLevel(t.id, built.blocks);
   const pl = wl && progression?.[wl.zone]?.source === 'history' ? progression[wl.zone].level : null;
   // Difficulty labels only for quality sessions (an easy Z2 ride isn't "achievable" or "recovery")
-  const difficulty: Difficulty | null = wl && pl != null && t.key ? difficultyOf(wl.level, pl) : null;
+  const difficulty: Difficulty | null = wl && pl != null && t.key && progressionCapable(t) ? difficultyOf(wl.level, pl) : null;
   const progWhy =
     wl && pl != null && difficulty && TEMPLATE_ZONE[t.id] !== 'endurance'
       ? [`${DIFFICULTY_LABEL[difficulty!]} for you: workout level ${wl.level.toFixed(1)} vs your ${PROG_LABEL[wl.zone]} level ${pl.toFixed(1)}.`]
@@ -188,7 +188,7 @@ function isHard(w: PlannedWorkout | null | undefined): boolean {
 /** Target workout level for this template this week, if progression history exists. */
 function progressionTarget(t: WorkoutTemplate, ctx: Ctx): number | null {
   const { mw, input } = ctx;
-  if (t.levels <= 1) return null;
+  if (t.levels <= 1 || !progressionCapable(t)) return null;
   const zone = TEMPLATE_ZONE[t.id];
   const pl = zone && zone !== 'endurance' ? input.progression?.[zone] : undefined;
   if (!pl || pl.source !== 'history') return null;
@@ -757,7 +757,7 @@ export function workoutAlternatives(w: PlannedWorkout, progression: Progression 
   if (w.fixed === 'group' || w.category === 'race' || !WORKOUT_BY_ID[w.templateId]) return [];
   const t = getTemplate(w.templateId);
   const zone = TEMPLATE_ZONE[t.id];
-  const pl = zone && zone !== 'endurance' && progression?.[zone]?.source === 'history' ? progression[zone].level : null;
+  const pl = zone && zone !== 'endurance' && progressionCapable(t) && progression?.[zone]?.source === 'history' ? progression[zone].level : null;
   const cur = w.level ?? 0;
   const out: Alternative[] = [];
   const curLoad = w.progression?.workoutLevel ?? w.tss;

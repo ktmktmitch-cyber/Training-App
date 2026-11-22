@@ -18,6 +18,7 @@ export interface WorkoutTemplate {
   levels: number;
   purpose: string;
   science?: string;
+  tags?: string[]; // 'indoor', 'outdoor', 'classic', 'evidence', 'climbing', 'race', 'test'
   /** level is 0-based, already clamped. */
   build(durationMin: number, level: number): BuildResult;
 }
@@ -348,11 +349,11 @@ const thresholdSurges: WorkoutTemplate = {
   purpose: 'Threshold blocks punctuated by short surges every 2 min — mimics attacks, corners and short climbs in road racing.',
   build(d, level) {
     const progs = [2, 3, 4];
-    const core = (l: number) => 25 + progs[l] * 12 + (progs[l] - 1) * 5;
+    const core = (l: number) => 25 + progs[l] * 13 + (progs[l] - 1) * 5;
     const l = fitLevel(d, level, core);
     const n = progs[l];
-    const main = sets(n, 6, steady(s(110), 90, 95), steady(s(10), 140, 160, { label: 'surge', cadence: '100+rpm' }), 5);
-    return { name: `Threshold + Surges ${n}×12min`, blocks: assemble(d, main) };
+    const main = sets(n, 6, steady(s(120), 92, 97), steady(s(10), 140, 160, { label: 'surge', cadence: '100+rpm' }), 5);
+    return { name: `Threshold + Surges ${n}×13min`, blocks: assemble(d, main) };
   },
 };
 
@@ -666,6 +667,552 @@ function fmtH(min: number) {
   return r ? `${h}h${String(r).padStart(2, '0')}` : `${h}h`;
 }
 
+
+// ---------- extended library ----------
+
+/** Generic builder for custom main sets: progs = list of level definitions → main blocks. */
+function custom(cfg: {
+  id: string;
+  name: string;
+  category: WorkoutCategory;
+  intensity: Intensity;
+  key?: boolean;
+  purpose: string;
+  science?: string;
+  tags?: string[];
+  maxMin?: number;
+  primers?: boolean;
+  wu?: number;
+  cd?: number;
+  levels: { label: string; main: () => Block[] }[];
+}): WorkoutTemplate {
+  const coreMin = (l: number) => (cfg.wu ?? 15) + (cfg.cd ?? 10) + totalSeconds(cfg.levels[l].main()) / 60;
+  return {
+    id: cfg.id,
+    name: cfg.name,
+    category: cfg.category,
+    intensity: cfg.intensity,
+    key: cfg.key ?? true,
+    minMin: Math.ceil(coreMin(0) / 5) * 5,
+    maxMin: cfg.maxMin ?? 180,
+    levels: cfg.levels.length,
+    purpose: cfg.purpose,
+    science: cfg.science,
+    tags: cfg.tags,
+    build(d, level) {
+      const l = fitLevel(d, level, coreMin);
+      return { name: `${cfg.name} ${cfg.levels[l].label}`.trim(), blocks: assemble(d, cfg.levels[l].main(), { primers: cfg.primers, wu: cfg.wu, cd: cfg.cd }) };
+    },
+  };
+}
+
+/** Long aerobic ride with a quality block embedded late (or mid) in the ride. */
+function longWith(cfg: {
+  id: string;
+  name: string;
+  category: WorkoutCategory;
+  intensity: Intensity;
+  key?: boolean;
+  purpose: string;
+  science?: string;
+  tags?: string[];
+  minMin: number;
+  where: 'middle' | 'end';
+  levels: { label: string; main: () => Block[] }[];
+}): WorkoutTemplate {
+  return {
+    id: cfg.id,
+    name: cfg.name,
+    category: cfg.category,
+    intensity: cfg.intensity,
+    key: cfg.key ?? true,
+    minMin: cfg.minMin,
+    maxMin: 420,
+    levels: cfg.levels.length,
+    purpose: cfg.purpose,
+    science: cfg.science,
+    tags: cfg.tags,
+    build(d, level) {
+      let l = level;
+      while (l > 0 && totalSeconds(cfg.levels[l].main()) / 60 + 30 > d) l--;
+      const main = cfg.levels[l].main();
+      const z2 = Math.max(15, d - 10 - 10 - totalSeconds(main) / 60);
+      const blocks =
+        cfg.where === 'end'
+          ? [block('Warmup', 1, [ramp(m(10), 50, 68)]), endurance(Math.round(z2)), ...main, cooldown(10)]
+          : [block('Warmup', 1, [ramp(m(10), 50, 68)]), endurance(Math.round(z2 / 2)), ...main, endurance(Math.round(z2 / 2)), cooldown(10)];
+      return { name: `${cfg.name} ${cfg.levels[l].label}`.trim(), blocks };
+    },
+  };
+}
+
+const rep = (n: number, steps: Step[], name = 'Main set') => block(name, n, steps);
+const rec = (min: number) => recoveryBetween(min);
+
+const enduranceTempo = longWith({
+  id: 'end_tempo',
+  name: 'Endurance + Tempo',
+  category: 'tempo',
+  intensity: 'moderate',
+  key: false,
+  minMin: 75,
+  where: 'middle',
+  purpose: 'A Zone 2 ride with tempo blocks in the middle — aerobic strength without the cost of a full interval day. A pyramidal-base favourite.',
+  tags: ['outdoor', 'classic'],
+  levels: [
+    { label: '2×10', main: () => sets(2, 1, steady(m(10), 78, 85), null, 5, 'Tempo') },
+    { label: '3×10', main: () => sets(3, 1, steady(m(10), 78, 85), null, 5, 'Tempo') },
+    { label: '2×20', main: () => sets(2, 1, steady(m(20), 78, 85), null, 5, 'Tempo') },
+    { label: '3×20', main: () => sets(3, 1, steady(m(20), 78, 85), null, 5, 'Tempo') },
+  ],
+});
+
+const torque = custom({
+  id: 'torque',
+  name: 'Low-Cadence Torque',
+  category: 'tempo',
+  intensity: 'moderate',
+  purpose: 'Big-gear, low-cadence tempo efforts for muscular endurance and climbing specificity. Research shows similar gains to normal-cadence work, so use it for variety and race specificity.',
+  tags: ['climbing'],
+  levels: [
+    { label: '4×5', main: () => [rep(4, [steady(m(5), 80, 88, { cadence: '55-65rpm' }), steady(m(3), 55)])] },
+    { label: '5×6', main: () => [rep(5, [steady(m(6), 80, 88, { cadence: '55-65rpm' }), steady(m(3), 55)])] },
+    { label: '4×8', main: () => [rep(4, [steady(m(8), 82, 90, { cadence: '55-65rpm' }), steady(m(4), 55)])] },
+    { label: '5×8', main: () => [rep(5, [steady(m(8), 82, 90, { cadence: '55-65rpm' }), steady(m(4), 55)])] },
+  ],
+});
+
+const z2ThresholdFinish = longWith({
+  id: 'z2_finish',
+  name: 'Endurance + Threshold Finish',
+  category: 'durability',
+  intensity: 'hard',
+  minMin: 90,
+  where: 'end',
+  purpose: 'Steady Zone 2, then a sustained threshold effort to finish — practise producing power when already tired.',
+  tags: ['outdoor'],
+  levels: [
+    { label: '1×10', main: () => [block('Finish', 1, [steady(m(10), 93, 98)])] },
+    { label: '1×15', main: () => [block('Finish', 1, [steady(m(15), 93, 98)])] },
+    { label: '1×20', main: () => [block('Finish', 1, [steady(m(20), 93, 98)])] },
+  ],
+});
+
+const tempoBursts = custom({
+  id: 'tempo_bursts',
+  name: 'Tempo with Bursts',
+  category: 'tempo',
+  intensity: 'moderate',
+  purpose: 'Tempo blocks with a short surge every 3 minutes — builds the ability to respond to accelerations and settle straight back into rhythm.',
+  tags: ['race'],
+  levels: [
+    { label: '2×13', main: () => sets(2, 4, steady(s(180), 80, 85), steady(s(10), 140, 160, { label: 'burst' }), 5) },
+    { label: '3×13', main: () => sets(3, 4, steady(s(180), 80, 85), steady(s(10), 140, 160, { label: 'burst' }), 5) },
+    { label: '3×16', main: () => sets(3, 5, steady(s(180), 80, 85), steady(s(10), 140, 160, { label: 'burst' }), 5) },
+  ],
+});
+
+const tempoLong = custom({
+  id: 'tempo_long',
+  name: 'Steady Tempo',
+  category: 'tempo',
+  intensity: 'moderate',
+  purpose: 'One long, continuous tempo effort — the backbone of gran fondo, gravel and ultra preparation.',
+  tags: ['classic'],
+  levels: [40, 50, 60, 75].map((x) => ({ label: `1×${x}`, main: () => [block('Tempo', 1, [steady(m(x), 78, 86)])] })),
+});
+
+const ssBursts = custom({
+  id: 'ss_bursts',
+  name: 'Sweet Spot with Surges',
+  category: 'sweetspot',
+  intensity: 'moderate',
+  purpose: 'Sweet spot with a 15-second surge every 3 minutes — race-like variability on top of a big aerobic stimulus.',
+  tags: ['race', 'indoor'],
+  levels: [
+    { label: '2×13', main: () => sets(2, 4, steady(s(180), 88, 92), steady(s(15), 125, 135, { label: 'surge' }), 5) },
+    { label: '3×13', main: () => sets(3, 4, steady(s(180), 88, 92), steady(s(15), 125, 135, { label: 'surge' }), 5) },
+    { label: '3×16', main: () => sets(3, 5, steady(s(180), 88, 92), steady(s(15), 125, 135, { label: 'surge' }), 5) },
+  ],
+});
+
+const ssLadder = custom({
+  id: 'ss_ladder',
+  name: 'Sweet Spot Ladder',
+  category: 'sweetspot',
+  intensity: 'moderate',
+  purpose: 'Each set climbs from low to high sweet spot in 5-minute steps, finishing near threshold — teaches pacing and builds fatigue resistance.',
+  levels: [
+    { label: '2×15', main: () => sets(2, 1, steady(m(5), 86, 88), null, 5).flatMap((b) => (b.name?.startsWith('Main') ? [block(b.name, 1, [steady(m(5), 86, 88), steady(m(5), 89, 91), steady(m(5), 92, 94)])] : [b])) },
+    { label: '2×20', main: () => sets(2, 1, steady(m(5), 86, 88), null, 5).flatMap((b) => (b.name?.startsWith('Main') ? [block(b.name, 1, [steady(m(5), 86, 88), steady(m(5), 89, 91), steady(m(5), 92, 94), steady(m(5), 95, 97)])] : [b])) },
+    { label: '3×20', main: () => sets(3, 1, steady(m(5), 86, 88), null, 5).flatMap((b) => (b.name?.startsWith('Main') ? [block(b.name, 1, [steady(m(5), 86, 88), steady(m(5), 89, 91), steady(m(5), 92, 94), steady(m(5), 95, 97)])] : [b])) },
+  ],
+});
+
+const thrSteady = custom({
+  id: 'thr_steady',
+  name: 'Steady Threshold',
+  category: 'threshold',
+  intensity: 'hard',
+  purpose: 'One continuous effort at FTP, extended over weeks — builds time-to-exhaustion at threshold, which matters as much as FTP itself in long races.',
+  tags: ['classic'],
+  levels: [20, 25, 30, 35, 40, 45].map((x) => ({ label: `1×${x}`, main: () => [block('Threshold', 1, [steady(m(x), 95, 100)])] })),
+});
+
+const ladderSet = (mins: number[], lo: number, hi: number, restMin: number): Block[] =>
+  mins.flatMap((x, i) => [block(i === 0 ? 'Ladder' : undefined, 1, [steady(m(x), lo, hi)]), ...(i < mins.length - 1 ? [rec(restMin)] : [])]);
+
+const thrLadder = custom({
+  id: 'thr_ladder',
+  name: 'Threshold Ladder',
+  category: 'threshold',
+  intensity: 'hard',
+  purpose: 'Up-and-down ladder of threshold efforts — varied durations keep it mentally manageable while accumulating lots of time at FTP.',
+  levels: [
+    { label: '4-6-8-6-4', main: () => ladderSet([4, 6, 8, 6, 4], 97, 102, 3) },
+    { label: '5-8-10-8-5', main: () => ladderSet([5, 8, 10, 8, 5], 97, 102, 3) },
+    { label: '6-10-12-10-6', main: () => ladderSet([6, 10, 12, 10, 6], 97, 102, 4) },
+  ],
+});
+
+const thrFloats = custom({
+  id: 'thr_floats',
+  name: 'Threshold Floats',
+  category: 'threshold',
+  intensity: 'hard',
+  purpose: 'Threshold efforts that "float" at high tempo instead of fully recovering — trains lactate clearance at race intensity.',
+  science: 'Keeping recoveries at high tempo maintains high blood lactate turnover, a common coaching method for raising sustainable power.',
+  levels: [
+    { label: '2×12', main: () => sets(2, 3, steady(m(3), 100, 103), steady(m(1), 85, 88, { label: 'float' }), 5) },
+    { label: '3×12', main: () => sets(3, 3, steady(m(3), 100, 103), steady(m(1), 85, 88, { label: 'float' }), 5) },
+    { label: '3×16', main: () => sets(3, 4, steady(m(3), 100, 103), steady(m(1), 85, 88, { label: 'float' }), 5) },
+  ],
+});
+
+const climbRepeats = custom({
+  id: 'climb_repeats',
+  name: 'Climb Repeats',
+  category: 'race_sim',
+  intensity: 'hard',
+  purpose: 'Repeated 5-6 minute climbs at threshold+, alternating seated low cadence and standing — ideally on a real hill, otherwise front wheel raised.',
+  tags: ['climbing', 'outdoor'],
+  levels: [
+    { label: '5×5', main: () => [rep(5, [steady(m(5), 100, 105, { cadence: '65-80rpm' }), steady(m(4), 50, 55)])] },
+    { label: '6×5', main: () => [rep(6, [steady(m(5), 100, 105, { cadence: '65-80rpm' }), steady(m(4), 50, 55)])] },
+    { label: '6×6', main: () => [rep(6, [steady(m(6), 100, 105, { cadence: '65-80rpm' }), steady(m(4), 50, 55)])] },
+    { label: '8×5', main: () => [rep(8, [steady(m(5), 100, 105, { cadence: '65-80rpm' }), steady(m(4), 50, 55)])] },
+  ],
+});
+
+const vo2Norwegian = custom({
+  id: 'vo2_4x4',
+  name: 'Norwegian Intervals',
+  category: 'vo2max',
+  intensity: 'hard',
+  primers: true,
+  purpose: 'The classic 4 × 4 min at ~90-95% of max heart rate with 3 min active recovery.',
+  science: 'Helgerud et al. (2007): 4×4 min intervals raised VO2max more than long slow distance or threshold training at matched work.',
+  tags: ['classic', 'evidence'],
+  levels: [
+    { label: '3×4', main: () => [rep(3, [steady(m(4), 108, 115), steady(m(3), 50, 60)])] },
+    { label: '4×4', main: () => [rep(4, [steady(m(4), 108, 115), steady(m(3), 50, 60)])] },
+    { label: '5×4', main: () => [rep(5, [steady(m(4), 108, 115), steady(m(3), 50, 60)])] },
+  ],
+});
+
+const vo2Billat = custom({
+  id: 'vo2_3030',
+  name: 'Billat 30/30',
+  category: 'vo2max',
+  intensity: 'hard',
+  primers: true,
+  purpose: '30 s hard / 30 s easy. Accumulates lots of time near VO2max with lower perceived effort than long intervals.',
+  science: 'Billat’s 30-30 intermittent runs kept athletes at VO2max for longer than continuous running at the same speed.',
+  tags: ['evidence', 'indoor'],
+  levels: [
+    { label: '2×8', main: () => sets(2, 8, steady(s(30), 115, 125), steady(s(30), 50, 50), 4) },
+    { label: '2×10', main: () => sets(2, 10, steady(s(30), 115, 125), steady(s(30), 50, 50), 4) },
+    { label: '3×10', main: () => sets(3, 10, steady(s(30), 115, 125), steady(s(30), 50, 50), 4) },
+    { label: '3×12', main: () => sets(3, 12, steady(s(30), 115, 125), steady(s(30), 50, 50), 4) },
+  ],
+});
+
+const pyramidSet = (mins: number[], lo: number, hi: number): Block[] =>
+  mins.flatMap((x, i) => [block(i === 0 ? 'Pyramid' : undefined, 1, [steady(m(x), lo, hi), ...(i < mins.length - 1 ? [steady(m(x), 50, 55)] : [])])]);
+
+const vo2Pyramid = custom({
+  id: 'vo2_pyramid',
+  name: 'VO2 Pyramid',
+  category: 'vo2max',
+  intensity: 'hard',
+  primers: true,
+  purpose: '1-2-3-4-3-2-1 minute efforts with equal recovery. Builds VO2max with built-in variety and pacing practice.',
+  levels: [
+    { label: '1-2-3-2-1', main: () => pyramidSet([1, 2, 3, 2, 1], 110, 120) },
+    { label: '1-2-3-4-3-2-1', main: () => pyramidSet([1, 2, 3, 4, 3, 2, 1], 110, 120) },
+    { label: '2-3-4-4-3-2', main: () => pyramidSet([2, 3, 4, 4, 3, 2], 110, 118) },
+  ],
+});
+
+const microbursts = custom({
+  id: 'vo2_microburst',
+  name: 'Microbursts 15/15',
+  category: 'vo2max',
+  intensity: 'hard',
+  primers: true,
+  purpose: '15 s very hard / 15 s easy in 8-10 minute blocks. Trains repeated accelerations (crits, CX, MTB) while keeping VO2 high.',
+  tags: ['race', 'indoor'],
+  levels: [
+    { label: '2×8min', main: () => sets(2, 16, steady(s(15), 140, 150), steady(s(15), 50, 50), 5) },
+    { label: '3×8min', main: () => sets(3, 16, steady(s(15), 140, 150), steady(s(15), 50, 50), 5) },
+    { label: '3×10min', main: () => sets(3, 20, steady(s(15), 140, 150), steady(s(15), 50, 50), 5) },
+  ],
+});
+
+const anaerobic2 = custom({
+  id: 'anaerobic_2min',
+  name: '2-Minute Repeats',
+  category: 'anaerobic',
+  intensity: 'hard',
+  primers: true,
+  purpose: 'Hard 2-minute efforts — the blend of VO2max and anaerobic capacity used for bridging gaps and short climbs.',
+  levels: [
+    { label: '5×2', main: () => [rep(5, [steady(m(2), 115, 122), steady(m(3), 50, 55)])] },
+    { label: '6×2', main: () => [rep(6, [steady(m(2), 115, 122), steady(m(3), 50, 55)])] },
+    { label: '8×2', main: () => [rep(8, [steady(m(2), 115, 122), steady(m(3), 50, 55)])] },
+  ],
+});
+
+const tabata = custom({
+  id: 'tabata',
+  name: 'Tabata 20/10',
+  category: 'anaerobic',
+  intensity: 'hard',
+  primers: true,
+  purpose: '8 × 20 s all-out / 10 s easy per set. Brutal but short anaerobic-capacity stimulus. Use sparingly, mainly for crit/CX/MTB.',
+  science: 'Tabata et al. (1996) showed gains in both anaerobic capacity and VO2max from this protocol in trained subjects.',
+  tags: ['evidence', 'indoor'],
+  levels: [
+    { label: '2 sets', main: () => sets(2, 8, steady(s(20), 160, 175), steady(s(10), 40, 45), 6) },
+    { label: '3 sets', main: () => sets(3, 8, steady(s(20), 160, 175), steady(s(10), 40, 45), 6) },
+  ],
+});
+
+const attacks = custom({
+  id: 'attacks',
+  name: 'Attack & Recover',
+  category: 'race_sim',
+  intensity: 'hard',
+  purpose: 'Repeated 30-second attacks from a tempo base, each followed by recovering while still riding firmly — just like racing in a group.',
+  tags: ['race'],
+  levels: [6, 8, 10].map((n) => ({ label: `${n} attacks`, main: () => [rep(n, [steady(s(30), 140, 160, { label: 'attack' }), steady(m(3), 80, 88)])] })),
+});
+
+const standingStarts = custom({
+  id: 'standing_starts',
+  name: 'Standing Starts',
+  category: 'sprint',
+  intensity: 'moderate',
+  key: false,
+  primers: true,
+  purpose: 'Maximal 15-second efforts from almost stopped in a big gear — peak torque and acceleration out of corners and starts.',
+  tags: ['outdoor', 'race'],
+  levels: [6, 8].map((n) => ({ label: `${n}×15s`, main: () => [rep(n, [steady(s(15), 160, 220, { label: 'max from slow', cadence: '40-110rpm' }), steady(m(5), 50, 55)])] })),
+});
+
+const leadoutSprints = custom({
+  id: 'leadout_sprints',
+  name: 'Lead-out Sprints',
+  category: 'sprint',
+  intensity: 'moderate',
+  key: false,
+  primers: true,
+  purpose: '30 s at high speed into a 12 s full sprint — race-finish simulation: sprinting when already above threshold.',
+  tags: ['race'],
+  levels: [5, 6, 8].map((n) => ({ label: `${n}×`, main: () => [rep(n, [steady(s(30), 115, 125, { label: 'lead-out' }), steady(s(12), 160, 220, { label: 'sprint' }), steady(m(5), 50, 55)])] })),
+});
+
+const breakaway = custom({
+  id: 'breakaway',
+  name: 'Breakaway Simulation',
+  category: 'race_sim',
+  intensity: 'hard',
+  purpose: 'A hard 2-minute attack to get clear, then hold just under threshold to stay away. Specific for road racing.',
+  tags: ['race'],
+  levels: [
+    { label: '2×14', main: () => sets(2, 1, steady(m(2), 118, 125, { label: 'attack' }), null, 6).map((b) => (b.name?.startsWith('Main') ? block(b.name, 1, [steady(m(2), 118, 125, { label: 'attack' }), steady(m(12), 90, 95)]) : b)) },
+    { label: '3×14', main: () => sets(3, 1, steady(m(2), 118, 125), null, 6).map((b) => (b.name?.startsWith('Main') ? block(b.name, 1, [steady(m(2), 118, 125, { label: 'attack' }), steady(m(12), 90, 95)]) : b)) },
+  ],
+});
+
+const xcStart = custom({
+  id: 'xc_start',
+  name: 'XC / CX Start Simulation',
+  category: 'race_sim',
+  intensity: 'hard',
+  primers: true,
+  purpose: 'Full-gas start to win position, then settle at threshold — the defining demand of mountain-bike and cyclocross racing.',
+  tags: ['race'],
+  levels: [3, 4].map((n) => ({ label: `${n}×`, main: () => [rep(n, [steady(s(90), 130, 150, { label: 'start' }), steady(m(8), 95, 100), steady(m(5), 50, 55)])] })),
+});
+
+const roadRaceSim = longWith({
+  id: 'road_race_sim',
+  name: 'Road Race Simulation',
+  category: 'race_sim',
+  intensity: 'hard',
+  minMin: 120,
+  where: 'end',
+  purpose: 'A long ride that ends like a road race: climbs, attacks, a hard tempo pull and a sprint — after hours in the legs.',
+  tags: ['race', 'outdoor'],
+  levels: [
+    { label: '', main: () => [rep(3, [steady(m(3), 108, 115, { label: 'climb' }), steady(m(4), 60, 70)], 'Race finale'), rep(4, [steady(s(30), 140, 160, { label: 'attack' }), steady(s(90), 75, 85)]), block(undefined, 1, [steady(m(10), 92, 97), steady(m(2), 60), steady(s(15), 160, 220, { label: 'sprint' })])] },
+    { label: '(long)', main: () => [rep(4, [steady(m(4), 108, 115, { label: 'climb' }), steady(m(4), 60, 70)], 'Race finale'), rep(6, [steady(s(30), 140, 160, { label: 'attack' }), steady(s(90), 75, 85)]), block(undefined, 1, [steady(m(15), 92, 97), steady(m(2), 60), steady(s(15), 160, 220, { label: 'sprint' })])] },
+  ],
+});
+
+const hillclimbTT = custom({
+  id: 'hillclimb_tt',
+  name: 'Hill-Climb TT Pacing',
+  category: 'race_sim',
+  intensity: 'hard',
+  wu: 20,
+  purpose: 'A single race-pace climb effort after a proper warm-up — rehearse pacing (start controlled, finish hard) for hill climbs and climbing TTs.',
+  tags: ['climbing'],
+  levels: [15, 20, 30].map((x) => ({ label: `1×${x}`, main: () => [block('Primers', 2, [steady(m(1), 105, 110), steady(m(2), 55)]), block('Race effort', 1, [steady(m(Math.round(x * 0.7)), 98, 102), steady(m(Math.round(x * 0.3)), 102, 108, { label: 'empty the tank' })])] })),
+});
+
+const durabilityVo2 = longWith({
+  id: 'durability_vo2',
+  name: 'Durability: Fatigued VO2',
+  category: 'durability',
+  intensity: 'hard',
+  minMin: 150,
+  where: 'end',
+  purpose: 'VO2max intervals after 2+ hours of riding — trains the late-race capacity that decides long events.',
+  science: 'High-intensity work after prolonged exercise targets "durability", now recognised as a separate performance determinant.',
+  levels: [
+    { label: '3×4', main: () => [rep(3, [steady(m(4), 106, 112), steady(m(4), 55)], 'Late VO2')] },
+    { label: '4×4', main: () => [rep(4, [steady(m(4), 106, 112), steady(m(4), 55)], 'Late VO2')] },
+  ],
+});
+
+const rampSteps = (): Block[] => [block('Ramp (go until you can’t hold it)', 1, Array.from({ length: 18 }, (_, i) => steady(m(1), 50 + i * 6, 50 + i * 6)))];
+const rampTest = custom({
+  id: 'ramp_test',
+  name: 'Ramp Test',
+  category: 'test',
+  intensity: 'hard',
+  wu: 10,
+  cd: 10,
+  purpose: '1-minute steps rising ~6% FTP each until failure. FTP ≈ 75% of your best 1-minute power. Quick and repeatable, but favours riders with big anaerobic power.',
+  tags: ['test', 'indoor'],
+  levels: [{ label: '', main: rampSteps }],
+});
+
+const test8 = custom({
+  id: 'test_8min',
+  name: '8-Minute Test',
+  category: 'test',
+  intensity: 'hard',
+  wu: 20,
+  purpose: 'Two 8-minute maximal efforts with 10 minutes recovery. FTP ≈ 90% of the average of the two.',
+  tags: ['test'],
+  levels: [{ label: '(2×8)', main: () => [block('Test', 2, [steady(m(8), 105, 115, { label: 'best sustainable' }), steady(m(10), 50, 55)])] }],
+});
+
+const testCp = custom({
+  id: 'test_cp',
+  name: 'Critical Power Test (3 + 12)',
+  category: 'test',
+  intensity: 'hard',
+  wu: 20,
+  maxMin: 120,
+  purpose: 'A 3-minute and a 12-minute all-out effort, 30 min apart. Gives critical power and W′ — the model intervals.icu uses for eFTP.',
+  tags: ['test'],
+  levels: [{ label: '', main: () => [block('3-min max', 1, [steady(m(3), 120, 130)]), rec(30), block('12-min max', 1, [steady(m(12), 100, 106)])] }],
+});
+
+const sprintTest = custom({
+  id: 'sprint_test',
+  name: 'Sprint Test',
+  category: 'test',
+  intensity: 'moderate',
+  key: false,
+  primers: true,
+  purpose: 'Three all-out 15-second sprints with full recovery to capture peak power (Pmax).',
+  tags: ['test'],
+  levels: [{ label: '', main: () => [rep(3, [steady(s(15), 180, 250, { label: 'all-out sprint' }), steady(m(5), 50, 55)])] }],
+});
+
+const recoveryDrills: WorkoutTemplate = {
+  id: 'recovery_drills',
+  name: 'Recovery + Pedalling Drills',
+  category: 'recovery',
+  intensity: 'easy',
+  key: false,
+  minMin: 30,
+  maxMin: 75,
+  levels: 1,
+  purpose: 'Very easy spin with single-leg and high-cadence drills for a smoother, more efficient pedal stroke. Best indoors.',
+  tags: ['indoor'],
+  build(d) {
+    const drills = block('Drills', 4, [steady(s(30), 45, 55, { label: 'left leg only' }), steady(s(30), 45, 55, { label: 'right leg only' }), steady(m(2), 45, 55, { cadence: '100-110rpm' })]);
+    return { name: 'Recovery + Drills', blocks: [block('Easy', 1, [steady(m(Math.max(5, d - 22) / 2), 45, 55)]), drills, block('Easy', 1, [steady(m(Math.max(5, d - 22) / 2), 45, 55)])] };
+  },
+};
+
+const raceWarmup: WorkoutTemplate = {
+  id: 'race_warmup',
+  name: 'Race-Day Warm-up',
+  category: 'openers',
+  intensity: 'easy',
+  key: false,
+  minMin: 25,
+  maxMin: 40,
+  levels: 1,
+  purpose: 'Pre-race warm-up for short, fast events (crit, TT, CX, hill climb): progressive build, race-pace primer and a couple of snappy sprints, done 10-15 min before the start.',
+  tags: ['race'],
+  build() {
+    return {
+      name: 'Race-Day Warm-up',
+      blocks: [
+        block('Build', 1, [ramp(m(10), 50, 80)]),
+        block('Primers', 3, [steady(m(1), 105, 110), steady(m(1), 55)]),
+        block(undefined, 1, [steady(m(3), 95, 100, { label: 'race pace' }), steady(m(3), 55)]),
+        block('Sprints', 2, [steady(s(10), 150, 180), steady(m(2), 50)]),
+      ],
+    };
+  },
+};
+
+const BASE_TAGS: Record<string, string[]> = {
+  endurance: ['classic', 'evidence'],
+  end_sprints: ['outdoor'],
+  end_cadence: ['indoor'],
+  tempo: ['classic'],
+  sweetspot: ['classic', 'indoor'],
+  threshold: ['classic'],
+  over_under: ['classic', 'race'],
+  thr_surges: ['race'],
+  vo2_long: ['classic', 'evidence'],
+  vo2_4x8: ['evidence'],
+  vo2_3015: ['evidence', 'indoor'],
+  vo2_4020: ['race', 'indoor'],
+  vo2_faststart: ['evidence'],
+  anaerobic: ['race'],
+  sprints: ['outdoor', 'race'],
+  crit_sim: ['race'],
+  climb_sim: ['climbing'],
+  tt_sim: ['race'],
+  gravel_sim: ['race', 'outdoor'],
+  durability: ['evidence', 'outdoor'],
+  openers: ['race'],
+  ftp_test: ['test'],
+};
+for (const t of [recovery, enduranceZ2, enduranceSprints, enduranceCadence, tempo, sweetspot, threshold, overUnder, thresholdSurges, vo2Long, vo2Seiler, vo2ThirtyFifteen, vo2FortyTwenty, vo2FastStart, anaerobic, sprints, critSim, climbSim, ttSim, gravelSim, durability, openers, ftpTest])
+  t.tags ??= BASE_TAGS[t.id];
+
 export const WORKOUTS: WorkoutTemplate[] = [
   recovery,
   enduranceZ2,
@@ -690,6 +1237,37 @@ export const WORKOUTS: WorkoutTemplate[] = [
   durability,
   openers,
   ftpTest,
+  enduranceTempo,
+  torque,
+  z2ThresholdFinish,
+  tempoBursts,
+  tempoLong,
+  ssBursts,
+  ssLadder,
+  thrSteady,
+  thrLadder,
+  thrFloats,
+  climbRepeats,
+  vo2Norwegian,
+  vo2Billat,
+  vo2Pyramid,
+  microbursts,
+  anaerobic2,
+  tabata,
+  attacks,
+  standingStarts,
+  leadoutSprints,
+  breakaway,
+  xcStart,
+  roadRaceSim,
+  hillclimbTT,
+  durabilityVo2,
+  rampTest,
+  test8,
+  testCp,
+  sprintTest,
+  recoveryDrills,
+  raceWarmup,
 ];
 
 export const WORKOUT_BY_ID: Record<string, WorkoutTemplate> = Object.fromEntries(WORKOUTS.map((w) => [w.id, w]));
