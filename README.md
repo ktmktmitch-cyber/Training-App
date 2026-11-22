@@ -74,16 +74,27 @@ The app opens with **demo data**, so you can explore it before connecting anythi
 
 The **Season** tab shows your phase timeline, the week-by-week plan and projected fitness/form on race day. **Trends** shows HRV/RHR with your normal range, fitness/fatigue/form, weekly hours and intensity distribution. **Guide** explains the logic and lists references.
 
+## Using it as a team (multiple people)
+
+Run the bundled server somewhere everyone can reach, and share the URL. Each person logs in with **their own intervals.icu account**: they paste their intervals.icu API key once, or tap "Log in with intervals.icu" if you've set up OAuth. intervals.icu confirms who owns the key, so there are no separate passwords.
+
+- Everyone gets **their own plan, numbers, journal, availability and settings**, saved to their account so it follows them to any device.
+- Everyone sees the **Team tab** (standings, PRs, feed from team-dashboard), with their own row and rank highlighted.
+- **Coaches** (detected automatically from their key, or listed in `COACH_IDS`) can also load each rider's detailed health metrics. Athletes can't see each other's HRV or readiness.
+- Credentials are encrypted at rest (AES-256-GCM) and never sent back to the browser. Sessions are signed HttpOnly cookies. Each person can log out on all devices or delete their account from Settings.
+
+Setup: set `SESSION_SECRET` and keep `DATA_DIR` on a persistent volume (see `.env.example`). For "Log in with intervals.icu", request an OAuth client from intervals.icu, set `INTERVALS_CLIENT_ID`/`INTERVALS_CLIENT_SECRET`, and use `<PUBLIC_URL>/api/auth/oauth/callback` as the redirect URL. `ACCOUNTS=off` restores single-user mode.
+
 ## Deploy / use on your phone
 
 Any Node 20+ host works (Render, Railway, Fly.io, a VPS, a home server):
 
 ```bash
 docker build -t training-app .
-docker run -p 8787:8787 --env-file .env training-app
+docker run -p 8787:8787 -v training-data:/app/data --env-file .env training-app
 ```
 
-If the server is reachable by anyone else, **set `APP_PASSWORD`** in `.env` (especially if you put your intervals.icu key or Strava credentials on the server). Open the URL on your phone and use *Add to Home Screen*. The app is installable and works full-screen.
+With accounts on (the default), each person's data is protected by their own login. `APP_PASSWORD` can add a team-wide password in front of everything. Open the URL on your phone and use *Add to Home Screen*. The app is installable and works full-screen.
 
 The static build (`dist/`) can also be hosted without the server. It then calls intervals.icu directly from the browser, which only works if intervals.icu allows cross-origin requests from your host, and Strava is unavailable.
 
@@ -99,7 +110,8 @@ The static build (`dist/`) can also be hosted without the server. It then calls 
 ## Project layout
 
 ```
-server/index.mjs       zero-dependency Node server: static files, /api/icu proxy, Strava OAuth
+server/index.mjs       zero-dependency Node server: static files, accounts, /api/icu proxy, Strava OAuth
+server/accounts.mjs    intervals.icu-based login, encrypted credentials, signed sessions, per-user state
 src/engine/            pure TypeScript training logic (unit-tested)
   readiness.ts         HRV/RHR/sleep/TSB readiness
   trends.ts            load history, intensity distribution, monotony

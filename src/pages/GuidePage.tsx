@@ -65,6 +65,12 @@ export function GuidePage() {
           <li><b>Staleness</b> is the classic term for the flat, overreached state that precedes overtraining. Foster showed that monotonous loading (high mean ÷ SD of daily load) multiplied by load (“strain”) precedes illness and staleness. The score adds chronically deep fatigue, no top-end stimulus for 3+ weeks, inactivity, stalled power despite rising load, and suppressed HRV / elevated resting HR. From team.json alone, daily load is back-calculated exactly from the fatigue (ATL) series.</li>
         </ul>
 
+        <h2>Accounts & privacy</h2>
+        <ul>
+          <li>On a shared server, everyone logs in with their own intervals.icu account (API key, or “Log in with intervals.icu”). Your plan, numbers, journal and settings belong to your account and follow you between devices. Everyone sees the team standings.</li>
+          <li>Your intervals.icu credential is stored encrypted on the server and never returned to the browser. Only coaches can load other riders’ detailed health data (HRV, readiness). You can log out everywhere or delete your account in Settings.</li>
+        </ul>
+
         <h2>Macro periodization options</h2>
         <ul>
           <li><b>Traditional (linear):</b> prep → base (Zone 2 + tempo/sweet spot) → build (threshold + VO2max) → peak (race-specific) → taper. 3:1 load:recovery by default.</li>

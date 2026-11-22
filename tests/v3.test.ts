@@ -179,3 +179,11 @@ describe('workout file exports', () => {
     expect(mrc.split('\r\n').filter((l) => /^\d+\.\d{2}\t\d+$/.test(l)).length).toBeGreaterThan(10);
   });
 });
+
+describe('journal tags', () => {
+  it('treats cannabis and a late heavy meal as one-night confounders', () => {
+    const e = affectedMornings({ '2026-11-21': ['cannabis', 'late_meal'] });
+    expect(e['2026-11-22']).toMatchObject({ excludeBaseline: true, excludeTrend: true });
+    expect(e['2026-11-23']).toBeUndefined();
+  });
+});

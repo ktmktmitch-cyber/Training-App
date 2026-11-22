@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './components/ui';
+import { AuthProvider, useAuth } from './lib/auth';
 import { AppProvider, useApp } from './lib/store';
+import { LoginPage } from './pages/LoginPage';
 import { GuidePage } from './pages/GuidePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { SeasonPage } from './pages/SeasonPage';
@@ -80,6 +82,13 @@ function Shell() {
             ))}
           </nav>
           <div className="topbar-status row">
+            {app.account && (
+              <a className="chip" href="#/settings" style={{ textDecoration: 'none' }} title={`Signed in with intervals.icu (${app.account.id})`}>
+                {app.account.name.split(' ')[0]}
+                {app.account.role === 'coach' ? ' · coach' : ''}
+              </a>
+            )}
+            {app.guest && <GuestLogin />}
             {app.settings.demo ? (
               <a className="chip" href="#/settings" style={{ textDecoration: 'none' }}>
                 Demo data
@@ -106,10 +115,32 @@ function Shell() {
   );
 }
 
-export function App() {
+function GuestLogin() {
+  const auth = useAuth();
   return (
-    <AppProvider>
+    <button className="btn sm" onClick={() => auth.setGuest(false)}>
+      Log in
+    </button>
+  );
+}
+
+function Gate() {
+  const auth = useAuth();
+  if (auth.status === 'checking') return <div className="splash">Loading…</div>;
+  if (auth.server?.accounts && !auth.user && !auth.guest) return <LoginPage />;
+  // One isolated state container per person: switching user remounts everything
+  const ns = auth.user ? `u:${auth.user.id}` : auth.guest ? 'guest' : 'local';
+  return (
+    <AppProvider key={ns}>
       <Shell />
     </AppProvider>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
   );
 }

@@ -26,6 +26,7 @@ async function call<T>(conn: Connection, path: string, init: RequestInit = {}): 
   const headers: Record<string, string> = { accept: 'application/json', ...(init.headers as Record<string, string>) };
   if (conn.apiKey) headers.authorization = 'Basic ' + btoa(`API_KEY:${conn.apiKey}`);
   if (conn.appPassword) headers['x-app-password'] = conn.appPassword;
+  if (!/^https?:/i.test(conn.base)) headers['x-ta'] = '1'; // bundled server: CSRF guard header
   if (init.body) headers['content-type'] = 'application/json';
   let res: Response;
   try {

@@ -7,6 +7,7 @@ import { BarChart, LineChart } from '../components/charts';
 import { LoadFocusCard } from '../components/insights';
 import { StatusIcon } from '../components/ui';
 import type { ReadinessStatus } from '../engine/types';
+import { useApp } from '../lib/store';
 import { useTeam } from '../lib/team';
 
 const dash = '—';
@@ -32,7 +33,9 @@ function MixBar({ m }: { m: RiderMetrics | undefined }) {
 
 export function TeamPage() {
   const t = useTeam();
+  const app = useApp();
   const team = t.team;
+  const meId = app.account?.id ?? (app.data.source === 'intervals' ? app.data.profile?.id : null) ?? null;
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'hours_this_week', dir: -1 });
   const [sel, setSel] = useState<string | null>(null);
   const detailRef = useRef<HTMLDivElement>(null);
@@ -45,6 +48,8 @@ export function TeamPage() {
   const staleWatch = ok.filter((r) => ['moderate', 'high'].includes(t.metrics[r.id]?.staleness.level));
   const vo2s = ok.map((r) => t.metrics[r.id]?.vo2.value).filter((v): v is number => v != null);
   const hasDeep = ok.some((r) => t.metrics[r.id]?.loadFocus);
+  const me = ok.find((r) => r.id === meId) ?? null;
+  const rank = (k: keyof TeamRider) => (me ? [...ok].sort((a, b) => ((b[k] as number) ?? -1) - ((a[k] as number) ?? -1)).findIndex((r) => r.id === me.id) + 1 : null);
 
   const val = (r: TeamRider, k: SortKey): number | string | null => {
     const m = t.metrics[r.id];
@@ -131,11 +136,25 @@ export function TeamPage() {
       {t.error && <div className="callout warn">{t.error}</div>}
       {!hasDeep && t.source === 'url' && (
         <div className="callout">
-          Load buckets, HRV-based readiness, training status and Garmin VO2max need each rider’s detailed data. {t.deepAvailable ? 'Tap “Load detailed metrics” to pull it from intervals.icu with your coach key.' : 'Add your intervals.icu (coach) API key in Settings to enable it.'}
+          Load buckets, HRV-based readiness, training status and Garmin VO2max need each rider’s detailed data.{' '}
+          {t.deepAvailable
+            ? 'Tap “Load detailed metrics” to pull it from intervals.icu with your coach key.'
+            : app.account && app.account.role !== 'coach'
+              ? 'Those per-rider health details are visible to your coach; your own are on your Progress page.'
+              : 'Add your intervals.icu (coach) API key in Settings to enable it.'}
         </div>
       )}
 
       <div className="team-tiles">
+        {me && (
+          <div className="card" style={{ borderColor: 'var(--accent)' }}>
+            <div className="label">Your standing</div>
+            <div className="team-big num">#{rank('hours_this_week')}</div>
+            <div className="tiny muted">
+              in hours this week · #{rank('fitness')} fitness · #{rank('eftp_wkg') || '—'} W/kg of {ok.length}
+            </div>
+          </div>
+        )}
         <div className="card">
           <div className="label">Team hours · this week</div>
           <div className="team-big num">{h1(sum('hours_this_week'))} h</div>
@@ -218,11 +237,12 @@ export function TeamPage() {
               {rows.map((r) => {
                 const m = t.metrics[r.id];
                 return (
-                  <tr key={r.id} className={sel === r.id ? 'current' : ''}>
+                  <tr key={r.id} className={`${sel === r.id ? 'current' : ''} ${r.id === meId ? 'me' : ''}`}>
                     <td className="sticky-col">
                       <button className="link-btn" onClick={() => open(r.id)}>
                         {r.rider}
                       </button>
+                      {r.id === meId && <span className="tiny muted"> (you)</span>}
                     </td>
                     <td className="num">{h1(r.hours_this_week)}</td>
                     <td className="num">{h1(r.hours_last_week)}</td>

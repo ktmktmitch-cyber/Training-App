@@ -104,7 +104,7 @@ export function WeekPage() {
         onCheckIn={app.setCheckIn}
         extra={
           <details className="more" open={Boolean(app.journal[addDays(app.asOf, -1)]?.length)}>
-            <summary>Anything unusual yesterday? (alcohol, travel, late meal…)</summary>
+            <summary>Anything unusual yesterday? (alcohol, cannabis, late heavy meal, travel…)</summary>
             <div style={{ marginTop: 8 }}>
               <TagPicker date={addDays(app.asOf, -1)} journal={app.journal} onChange={app.setJournalTags} />
               <p className="tiny muted" style={{ marginTop: 6 }}>

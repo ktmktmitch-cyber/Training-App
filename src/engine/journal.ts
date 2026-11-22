@@ -20,6 +20,7 @@ import type { ISODate, Wellness } from './types';
 export type TagKey =
   | 'alcohol_light'
   | 'alcohol_heavy'
+  | 'cannabis'
   | 'late_meal'
   | 'caffeine_late'
   | 'travel'
@@ -45,7 +46,8 @@ export interface TagDef {
 export const TAGS: TagDef[] = [
   { key: 'alcohol_light', label: 'Alcohol (1-2 drinks)', short: 'Alcohol', mornings: 1, excludeBaseline: true, excludeTrend: true, why: 'Alcohol raises sleeping heart rate and suppresses HRV in a dose-dependent way, mostly in the first hours of sleep. One or two drinks usually clear by the next night.' },
   { key: 'alcohol_heavy', label: 'Alcohol (3+ drinks)', short: 'Alcohol 3+', mornings: 2, excludeBaseline: true, excludeTrend: true, why: 'Heavier drinking suppresses HRV and raises resting HR more, and the effect can carry into a second night.' },
-  { key: 'late_meal', label: 'Big / late meal', short: 'Late meal', mornings: 1, excludeBaseline: true, excludeTrend: true, why: 'Digestion close to bedtime raises overnight heart rate and lowers HRV for one night.' },
+  { key: 'cannabis', label: 'Cannabis (weed)', short: 'Cannabis', mornings: 1, excludeBaseline: true, excludeTrend: true, why: 'THC raises heart rate for several hours and alters sleep architecture (less REM); wearable data commonly show lower overnight HRV and higher resting HR after evening use. Research is still limited, so it is treated as a one-night confounder, like light alcohol.' },
+  { key: 'late_meal', label: 'Late heavy meal', short: 'Late meal', mornings: 1, excludeBaseline: true, excludeTrend: true, why: 'A large meal close to bedtime keeps digestion and metabolism elevated overnight, raising sleeping heart rate and lowering HRV for one night.' },
   { key: 'caffeine_late', label: 'Caffeine late in the day', short: 'Late caffeine', mornings: 1, excludeBaseline: true, excludeTrend: true, why: 'Caffeine taken in the afternoon or evening can disturb sleep and nudge overnight HR up.' },
   { key: 'travel', label: 'Travel / jet lag', short: 'Travel', mornings: 2, excludeBaseline: true, excludeTrend: true, why: 'Circadian disruption, dehydration and poor sleep on travel days shift HRV/RHR for a couple of nights.' },
   { key: 'altitude', label: 'Altitude (first days)', short: 'Altitude', mornings: 3, excludeBaseline: true, excludeTrend: true, why: 'Acute hypoxia raises resting HR and lowers HRV until you acclimatise.' },

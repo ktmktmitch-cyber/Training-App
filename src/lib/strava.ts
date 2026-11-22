@@ -42,7 +42,7 @@ export async function stravaStatus(pw?: string): Promise<StravaStatus | null> {
 }
 
 export async function stravaDisconnect(pw?: string): Promise<void> {
-  await fetch('api/strava/disconnect', { method: 'POST', headers: withPw(pw) });
+  await fetch('api/strava/disconnect', { method: 'POST', headers: { ...withPw(pw), 'x-ta': '1' } });
 }
 
 export function normalizeStrava(a: RawStrava, profile: AthleteProfile | null): Activity {

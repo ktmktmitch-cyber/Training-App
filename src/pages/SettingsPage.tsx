@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { PlannerPrefs, TargetMode } from '../engine/types';
 import { Field, Seg, useToast } from '../components/ui';
+import { useAuth } from '../lib/auth';
 import { useApp } from '../lib/store';
 import { stravaDisconnect } from '../lib/strava';
 import { remove } from '../lib/storage';
@@ -8,7 +9,9 @@ import { DEFAULT_TEAM_URL } from '../lib/team';
 
 export function SettingsPage() {
   const app = useApp();
+  const auth = useAuth();
   const { settings, server, strava, data } = app;
+  const [newKey, setNewKey] = useState('');
   const c = settings.connection;
   const [toast, showToast] = useToast();
   const [testing, setTesting] = useState(false);
@@ -66,6 +69,60 @@ export function SettingsPage() {
     <>
       <h1>Settings</h1>
 
+      {app.account && (
+        <div className="card stack">
+          <div className="card-head" style={{ marginBottom: 0 }}>
+            <h2>Your account</h2>
+            <span className="chip">{{ idle: 'Synced', saving: 'Saving…', saved: 'Saved to your account', error: 'Couldn’t save — will retry' }[auth.syncState]}</span>
+          </div>
+          <p className="small ink2">
+            Signed in as <b>{app.account.name}</b> ({app.account.id}) with your intervals.icu {app.account.authType === 'oauth' ? 'login' : 'API key'} · {app.account.role === 'coach' ? 'coach' : 'athlete'}.
+            Your plan, availability, journal and settings are saved to your account and follow you to any device. Your intervals.icu credential is stored encrypted on this server and is never sent back to the browser.
+          </p>
+          {app.account.authType === 'apikey' && (
+            <div className="row">
+              <input className="input" type="password" style={{ flex: '1 1 220px' }} placeholder="New intervals.icu API key (if you regenerated it)" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
+              <button
+                className="btn sm"
+                disabled={newKey.trim().length < 10}
+                onClick={() =>
+                  auth
+                    .loginWithKey(newKey)
+                    .then(() => {
+                      setNewKey('');
+                      showToast('API key updated.');
+                    })
+                    .catch((e) => showToast((e as Error).message))
+                }
+              >
+                Update key
+              </button>
+            </div>
+          )}
+          <div className="row">
+            <button className="btn sm" onClick={() => auth.logout()}>
+              Log out
+            </button>
+            <button className="btn sm ghost" onClick={() => auth.logout(true)}>
+              Log out on all devices
+            </button>
+            <button
+              className="btn sm ghost"
+              onClick={() => {
+                if (confirm('Delete your account and everything saved with it on this server? Your intervals.icu data is not affected.')) auth.deleteAccount().catch((e) => showToast((e as Error).message));
+              }}
+            >
+              Delete my account
+            </button>
+          </div>
+        </div>
+      )}
+      {app.guest && (
+        <div className="callout">
+          You’re exploring the demo. <button className="link-btn" onClick={() => auth.setGuest(false)}>Log in with your intervals.icu account</button> to see your own plan and numbers.
+        </div>
+      )}
+
       <div className="card stack-lg">
         <div className="card-head" style={{ marginBottom: 0 }}>
           <h2>intervals.icu</h2>
@@ -74,6 +131,8 @@ export function SettingsPage() {
         <p className="small ink2">
           intervals.icu is the hub: it receives activities and wellness (HRV, resting HR, sleep) from Garmin, and sends planned workouts back to your Garmin calendar. Find your API key and athlete ID in intervals.icu → Settings → Developer Settings.
         </p>
+        {!app.account && (
+        <>
         <div className="grid-2">
           <Field label="API key" hint={server?.serverIcuKey ? 'The server already has a key (.env) — you can leave this empty.' : 'Stored only in this browser.'}>
             <input className="input" type="password" autoComplete="off" value={c.apiKey} onChange={(e) => setConn({ apiKey: e.target.value })} placeholder="intervals.icu API key" />
@@ -102,6 +161,8 @@ export function SettingsPage() {
           />
           <span className="tiny muted">{server ? 'Bundled server detected — requests go through it.' : 'No server detected — calling intervals.icu directly.'}</span>
         </div>
+        </>
+        )}
         <div className="row">
           <button className="btn" onClick={doTest} disabled={testing}>
             {testing ? 'Testing…' : 'Test connection'}

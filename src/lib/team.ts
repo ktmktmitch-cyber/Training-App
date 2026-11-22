@@ -103,7 +103,8 @@ export function useTeam(): TeamState {
 
   const current = demoSet?.team ?? team;
   const currentDeep = demoSet?.deep ?? deep;
-  const deepAvailable = !demo && app.canPush;
+  // Detailed per-rider health data (HRV, readiness) is for the coach only
+  const deepAvailable = !demo && app.canPush && (!app.account || app.account.role === 'coach');
 
   const loadDeep = useCallback(async () => {
     if (!current || demo) return;

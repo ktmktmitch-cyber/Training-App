@@ -1332,3 +1332,46 @@ details.card > summary {
   font-weight: 650;
   color: var(--ink);
 }
+
+/* ---------- v5: login ---------- */
+.splash {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.login-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+.login-card {
+  width: 100%;
+  max-width: 440px;
+}
+.login-card .brand-mark {
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+}
+.or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.or::before,
+.or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+tr.me td {
+  font-weight: 650;
+}
+tr.me .sticky-col {
+  box-shadow: inset 3px 0 0 var(--accent);
+}

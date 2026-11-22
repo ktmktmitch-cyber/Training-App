@@ -33,6 +33,7 @@ import type {
   WeekPlan,
   Wellness,
 } from '../engine/types';
+import { useAuth, type PublicUser, type ServerInfo } from './auth';
 import { DEFAULT_PREFS, DEFAULT_STRENGTH, defaultGoal } from './defaults';
 import { demoData, demoJournal, demoSnapshots } from './demo';
 import { fetchAll, pushEvents, testConnection, type Connection } from './intervals';
@@ -70,25 +71,34 @@ export interface DataState {
   info: string | null;
 }
 
-export interface ServerInfo {
-  proxy: boolean;
-  authRequired: boolean;
-  authed: boolean;
-  serverIcuKey: boolean;
-  serverAthleteId: string | null;
-  strava: boolean;
-}
+export type { ServerInfo } from './auth';
 
-const K = {
-  settings: 'ta.settings.v1',
-  weeks: 'ta.weeks.v1',
-  checkins: 'ta.checkins.v1',
-  data: 'ta.data.v1',
-  feedback: 'ta.feedback.v1',
-  history: 'ta.history.v1',
-  journal: 'ta.journal.v1',
-  scheduled: 'ta.scheduled.v1',
-};
+/** localStorage keys, namespaced per signed-in user ('local' keeps the original single-user keys). */
+function keysFor(ns: string) {
+  const p = ns === 'local' ? 'ta.' : `ta.${ns}.`;
+  return {
+    settings: `${p}settings.v1`,
+    weeks: `${p}weeks.v1`,
+    checkins: `${p}checkins.v1`,
+    data: `${p}data.v1`,
+    feedback: `${p}feedback.v1`,
+    history: `${p}history.v1`,
+    journal: `${p}journal.v1`,
+    scheduled: `${p}scheduled.v1`,
+  };
+}
+type Keys = ReturnType<typeof keysFor>;
+
+/** What follows a signed-in user across devices (stored on the server with their account). */
+interface RemoteState {
+  settings?: Partial<AppSettings>;
+  weeks?: Record<ISODate, WeekConfig>;
+  checkins?: Record<ISODate, CheckIn>;
+  feedback?: Record<string, Feedback>;
+  history?: Record<ISODate, PlanSnapshot>;
+  journal?: Journal;
+  scheduled?: Record<ISODate, Scheduled>;
+}
 
 export interface Scheduled {
   workoutId: string;
@@ -96,12 +106,12 @@ export interface Scheduled {
   level: number;
 }
 
-function initialSettings(): AppSettings {
+function initialSettings(K: Keys, remote: RemoteState | null, signedIn: boolean, guest: boolean): AppSettings {
   const t = today();
-  const stored = load<Partial<AppSettings> | null>(K.settings, null);
+  const stored = remote?.settings ?? load<Partial<AppSettings> | null>(K.settings, null);
   const base: AppSettings = {
     connection: { mode: 'auto', apiKey: '', athleteId: '', appPassword: '', useStrava: false },
-    demo: true,
+    demo: !signedIn,
     goal: defaultGoal(t),
     strength: DEFAULT_STRENGTH,
     prefs: DEFAULT_PREFS,
@@ -111,8 +121,8 @@ function initialSettings(): AppSettings {
     startOffset: 1,
     teamUrl: '',
   };
-  if (!stored) return base;
-  return {
+  if (!stored) return guest ? { ...base, demo: true } : base;
+  const merged: AppSettings = {
     ...base,
     ...stored,
     connection: { ...base.connection, ...stored.connection },
@@ -120,6 +130,7 @@ function initialSettings(): AppSettings {
     strength: { ...base.strength, ...stored.strength },
     prefs: { ...base.prefs, ...stored.prefs },
   };
+  return guest ? { ...merged, demo: true } : merged;
 }
 
 const EMPTY_DATA: DataState = { profile: null, activities: [], wellness: [], events: [], source: 'none', lastSync: null, info: null };
@@ -166,6 +177,8 @@ interface Ctx {
   schedule: (date: ISODate, s: Scheduled | null) => void;
   pushWorkout: (date: ISODate, w: PlannedWorkout) => Promise<string>;
   getConnection: () => Connection;
+  account: PublicUser | null;
+  guest: boolean;
   vo2: Vo2Estimate;
   vo2History: { date: ISODate; vo2: number }[];
   staleness: Staleness;
@@ -180,19 +193,24 @@ export function useApp(): Ctx {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<AppSettings>(initialSettings);
-  const [weeks, setWeeks] = useState<Record<ISODate, WeekConfig>>(() => load(K.weeks, {}));
-  const [checkins, setCheckins] = useState<Record<ISODate, CheckIn>>(() => load(K.checkins, {}));
+  const auth = useAuth();
+  const account = auth.user;
+  const guest = !account && auth.guest;
+  const [K] = useState<Keys>(() => keysFor(account ? `u.${account.id}` : guest ? 'guest' : 'local'));
+  const [remote] = useState<RemoteState | null>(() => (account ? (auth.remoteState as RemoteState | null) : null));
+  const [settings, setSettings] = useState<AppSettings>(() => initialSettings(K, remote, Boolean(account), guest));
+  const [weeks, setWeeks] = useState<Record<ISODate, WeekConfig>>(() => remote?.weeks ?? load(K.weeks, {}));
+  const [checkins, setCheckins] = useState<Record<ISODate, CheckIn>>(() => remote?.checkins ?? load(K.checkins, {}));
   const [stored, setStored] = useState<DataState>(() => load(K.data, EMPTY_DATA));
-  const [server, setServer] = useState<ServerInfo | null>(null);
+  const server: ServerInfo | null = auth.server;
   const [strava, setStrava] = useState<StravaStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [asOf, setAsOf] = useState(today());
-  const [feedback, setFeedbackState] = useState<Record<string, Feedback>>(() => load(K.feedback, {}));
-  const [history, setHistory] = useState<Record<ISODate, PlanSnapshot>>(() => load(K.history, {}));
-  const [journalState, setJournalState] = useState<Journal>(() => load(K.journal, {}));
-  const [scheduled, setScheduled] = useState<Record<ISODate, Scheduled>>(() => load(K.scheduled, {}));
+  const [feedback, setFeedbackState] = useState<Record<string, Feedback>>(() => remote?.feedback ?? load(K.feedback, {}));
+  const [history, setHistory] = useState<Record<ISODate, PlanSnapshot>>(() => remote?.history ?? load(K.history, {}));
+  const [journalState, setJournalState] = useState<Journal>(() => remote?.journal ?? load(K.journal, {}));
+  const [scheduled, setScheduled] = useState<Record<ISODate, Scheduled>>(() => remote?.scheduled ?? load(K.scheduled, {}));
   useEffect(() => save(K.journal, journalState), [journalState]);
   useEffect(() => save(K.scheduled, scheduled), [scheduled]);
   const setJournalTags = useCallback(
@@ -228,9 +246,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  useEffect(() => save(K.settings, settings), [settings]);
-  useEffect(() => save(K.weeks, weeks), [weeks]);
-  useEffect(() => save(K.checkins, checkins), [checkins]);
+  useEffect(() => save(K.settings, settings), [K, settings]);
+  useEffect(() => save(K.weeks, weeks), [K, weeks]);
+  useEffect(() => save(K.checkins, checkins), [K, checkins]);
+
+  // Signed-in users: everything personal follows them to other devices
+  const { saveRemote } = auth;
+  useEffect(() => {
+    if (!account) return;
+    saveRemote({
+      settings: { ...settings, connection: { ...settings.connection, apiKey: '', appPassword: '' } },
+      weeks,
+      checkins,
+      feedback,
+      history,
+      journal: journalState,
+      scheduled,
+    });
+  }, [account, saveRemote, settings, weeks, checkins, feedback, history, journalState, scheduled]);
 
   // Refresh "today" when the tab regains focus (app left open overnight)
   useEffect(() => {
@@ -239,18 +272,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener('visibilitychange', f);
   }, []);
 
-  // Detect the bundled server (proxy + Strava)
+  // Strava status (server feature)
   useEffect(() => {
     const pw = settings.connection.appPassword;
     if (pw) document.cookie = `app_pw=${encodeURIComponent(pw)}; path=/; max-age=31536000; SameSite=Lax`;
-    fetch('api/health', { headers: pw ? { 'x-app-password': pw } : {} })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        setServer(j && j.proxy ? (j as ServerInfo) : null);
-        if (j?.strava) stravaStatus(pw).then(setStrava);
-      })
-      .catch(() => setServer(null));
-  }, [settings.connection.appPassword]);
+    if (server?.strava) stravaStatus(pw).then(setStrava);
+  }, [settings.connection.appPassword, server]);
 
   const updateSettings = useCallback((fn: (s: AppSettings) => AppSettings) => setSettings((s) => fn(s)), []);
 
@@ -260,6 +287,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     : stored;
 
   const connection = useCallback((): Connection => {
+    // Signed in: the server holds your intervals.icu credentials and injects them
+    if (account) return { base: 'api/icu', apiKey: '', athleteId: account.id };
     const c = settings.connection;
     const useProxy = c.mode === 'proxy' || (c.mode === 'auto' && server?.proxy);
     return {
@@ -268,14 +297,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       athleteId: c.athleteId.trim() || server?.serverAthleteId || '0',
       appPassword: c.appPassword || undefined,
     };
-  }, [settings.connection, server]);
+  }, [settings.connection, server, account]);
 
   const sync = useCallback(async () => {
     setSyncing(true);
     setSyncError(null);
     try {
       const conn = connection();
-      if (!conn.apiKey && !server?.serverIcuKey) throw new Error('Add your intervals.icu API key in Settings first.');
+      if (!conn.apiKey && !server?.serverIcuKey && !account) throw new Error('Add your intervals.icu API key in Settings first.');
       const oldest = addDays(asOf, -120);
       const res = await fetchAll(conn, oldest, asOf, addDays(asOf, 365));
       let activities = res.activities;
@@ -304,7 +333,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(false);
     }
-  }, [connection, server, asOf, settings.connection.useStrava, settings.connection.appPassword, strava]);
+  }, [connection, server, account, asOf, settings.connection.useStrava, settings.connection.appPassword, strava]);
 
   const test = useCallback(async () => testConnection(connection()), [connection]);
 
@@ -312,7 +341,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (settings.demo) return;
     const age = stored.lastSync ? Date.now() - new Date(stored.lastSync).getTime() : Infinity;
-    if (age > 3 * 3600_000 && (settings.connection.apiKey || server?.serverIcuKey)) sync().catch(() => {});
+    if (age > 3 * 3600_000 && (settings.connection.apiKey || server?.serverIcuKey || account)) sync().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server, settings.demo]);
 
@@ -490,7 +519,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, [plan, asOf, settings.demo]);
 
-  const canPush = !settings.demo && (Boolean(settings.connection.apiKey) || Boolean(server?.serverIcuKey));
+  const canPush = !settings.demo && (Boolean(settings.connection.apiKey) || Boolean(server?.serverIcuKey) || Boolean(account));
 
   const pushWorkout = useCallback(
     async (date: ISODate, w: PlannedWorkout) => {
@@ -566,6 +595,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     schedule,
     pushWorkout,
     getConnection: connection,
+    account,
+    guest,
     vo2,
     vo2History,
     staleness,
