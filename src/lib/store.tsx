@@ -1,7 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { addDays, dow, range, today } from '../engine/dates';
+import { addDays, diffDays, dow, range, today } from '../engine/dates';
+import { computeCompliance, missedKeySessions, type ComplianceDay, type PlanSnapshot } from '../engine/compliance';
 import { allExternalIdsFor, dayToIcuEvents } from '../engine/icuExport';
-import { buildMacroPlan } from '../engine/periodization';
+import { computeLoadFocus, type LoadFocus } from '../engine/loadFocus';
+import { powerProfile, type PowerProfile } from '../engine/powerProfile';
+import { computeProgression, type Feedback, type Progression } from '../engine/progression';
+import { trainingStatus, type TrainingStatus } from '../engine/status';
+import { buildMacroPlan, macroWeekFor } from '../engine/periodization';
 import { planWeek } from '../engine/planner';
 import { assessReadiness } from '../engine/readiness';
 import { computeTrends } from '../engine/trends';
@@ -23,7 +28,7 @@ import type {
   Wellness,
 } from '../engine/types';
 import { DEFAULT_PREFS, DEFAULT_STRENGTH, defaultGoal } from './defaults';
-import { demoData } from './demo';
+import { demoData, demoSnapshots } from './demo';
 import { fetchAll, pushEvents, testConnection, type Connection } from './intervals';
 import { load, save } from './storage';
 import { mergeActivities, stravaActivities, stravaStatus, type StravaStatus } from './strava';
@@ -72,6 +77,8 @@ const K = {
   weeks: 'ta.weeks.v1',
   checkins: 'ta.checkins.v1',
   data: 'ta.data.v1',
+  feedback: 'ta.feedback.v1',
+  history: 'ta.history.v1',
 };
 
 function initialSettings(): AppSettings {
@@ -127,6 +134,13 @@ interface Ctx {
   plan: WeekPlan;
   push: (plan: WeekPlan) => Promise<string>;
   canPush: boolean;
+  progression: Progression;
+  loadFocus: LoadFocus;
+  status: TrainingStatus;
+  compliance: ComplianceDay[];
+  power: PowerProfile | null;
+  feedback: Record<string, Feedback>;
+  setFeedback: (activityId: string, f: Feedback | null) => void;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -147,6 +161,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [asOf, setAsOf] = useState(today());
+  const [feedback, setFeedbackState] = useState<Record<string, Feedback>>(() => load(K.feedback, {}));
+  const [history, setHistory] = useState<Record<ISODate, PlanSnapshot>>(() => load(K.history, {}));
+  useEffect(() => save(K.feedback, feedback), [feedback]);
+  useEffect(() => save(K.history, history), [history]);
+  const setFeedback = useCallback(
+    (id: string, f: Feedback | null) =>
+      setFeedbackState((all) => {
+        const n = { ...all };
+        if (f) n[id] = f;
+        else delete n[id];
+        return n;
+      }),
+    [],
+  );
 
   useEffect(() => save(K.settings, settings), [settings]);
   useEffect(() => save(K.weeks, weeks), [weeks]);
@@ -293,6 +321,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [data.wellness, asOf, checkIn, settings.goal.model],
   );
   const trends = useMemo(() => computeTrends(data.activities, data.wellness, asOf), [data.activities, data.wellness, asOf]);
+  const progression = useMemo(() => computeProgression(data.activities, feedback, asOf), [data.activities, feedback, asOf]);
+  const loadFocus = useMemo(() => {
+    const mw = macroWeekFor(macro, startDate);
+    return computeLoadFocus(data.activities, asOf, mw?.phase ?? 'base', settings.goal.eventType);
+  }, [data.activities, asOf, macro, startDate, settings.goal.eventType]);
+  const status = useMemo(() => trainingStatus(data.wellness, readiness, asOf), [data.wellness, readiness, asOf]);
+  const snapshots = useMemo(() => (settings.demo ? demoSnapshots(asOf) : history), [settings.demo, asOf, history]);
+  const compliance = useMemo(
+    () => computeCompliance(range(addDays(asOf, -7), 8), asOf, data.events, data.activities, snapshots),
+    [asOf, data.events, data.activities, snapshots],
+  );
+  const carryOver = useMemo(() => missedKeySessions(compliance, asOf), [compliance, asOf]);
+  const power = useMemo(() => powerProfile(effProfile), [effProfile]);
+  const limiter = power ? ({ sprint: 'anaerobic', anaerobic: 'anaerobic', vo2: 'vo2max', threshold: 'threshold' } as const)[power.limiter] : null;
   const plan = useMemo(
     () =>
       planWeek({
@@ -318,9 +360,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
           hrZones: [],
         },
         events: data.events,
+        progression,
+        loadFocus,
+        carryOver,
+        limiter,
       }),
-    [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, data.events],
+    [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, data.events, progression, loadFocus, carryOver, limiter],
   );
+
+  // Remember what was planned (today onward) so compliance works even without pushing to intervals.icu
+  useEffect(() => {
+    if (settings.demo) return;
+    setHistory((h) => {
+      const n: Record<ISODate, PlanSnapshot> = {};
+      for (const [d, v] of Object.entries(h)) if (diffDays(asOf, d) <= 60 && d < asOf) n[d] = v;
+      for (const d of plan.days) {
+        if (d.date < asOf || !d.ride) continue;
+        n[d.date] = { date: d.date, name: d.ride.name, templateId: d.ride.templateId, durationMin: d.ride.durationMin, tss: d.ride.tss, key: d.ride.key };
+      }
+      return JSON.stringify(n) === JSON.stringify(h) ? h : n;
+    });
+  }, [plan, asOf, settings.demo]);
 
   const canPush = !settings.demo && (Boolean(settings.connection.apiKey) || Boolean(server?.serverIcuKey));
 
@@ -363,6 +423,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     plan,
     push,
     canPush,
+    progression,
+    loadFocus,
+    status,
+    compliance,
+    power,
+    feedback,
+    setFeedback,
   };
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

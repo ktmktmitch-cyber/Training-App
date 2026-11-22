@@ -32,6 +32,8 @@ import type {
   WeekConfig,
   WeekPlan,
 } from './types';
+import type { LoadFocus } from './loadFocus';
+import { DIFFICULTY_LABEL, difficultyOf, PROG_LABEL, TEMPLATE_ZONE, workoutLevel, type Difficulty, type ProgZone, type Progression } from './progression';
 import { blocksLoad, getTemplate, GROUP_IF, tssFromIf, WORKOUT_BY_ID, type WorkoutTemplate } from './workouts';
 
 export interface PlanInput {
@@ -46,6 +48,10 @@ export interface PlanInput {
   trends: Trends;
   profile: AthleteProfile;
   events: CalendarEvent[];
+  progression?: Progression;
+  loadFocus?: LoadFocus;
+  carryOver?: { date: ISODate; templateId: string; name: string }[];
+  limiter?: ProgZone | null; // from the power profile
 }
 
 const FALLBACK_WEEK: MacroWeek = {
@@ -106,11 +112,13 @@ interface Ctx {
   summary: string[];
 }
 
-function makeWorkout(
+/** Build a concrete workout from a template, with load, fueling and progression info. */
+export function instantiate(
   t: WorkoutTemplate,
   durationMin: number,
   level: number,
-  ctx: Ctx,
+  weightKg: number | null,
+  progression: Progression | undefined,
   why: string[],
   overrides: Partial<PlannedWorkout> = {},
 ): PlannedWorkout {
@@ -118,6 +126,14 @@ function makeWorkout(
   const lvl = Math.max(0, Math.min(t.levels - 1, level));
   const built = t.build(d, lvl);
   const load = blocksLoad(built.blocks);
+  const wl = workoutLevel(t.id, built.blocks);
+  const pl = wl && progression?.[wl.zone]?.source === 'history' ? progression[wl.zone].level : null;
+  // Difficulty labels only for quality sessions (an easy Z2 ride isn't "achievable" or "recovery")
+  const difficulty: Difficulty | null = wl && pl != null && t.key ? difficultyOf(wl.level, pl) : null;
+  const progWhy =
+    wl && pl != null && difficulty && TEMPLATE_ZONE[t.id] !== 'endurance'
+      ? [`${DIFFICULTY_LABEL[difficulty!]} for you: workout level ${wl.level.toFixed(1)} vs your ${PROG_LABEL[wl.zone]} level ${pl.toFixed(1)}.`]
+      : [];
   const w: PlannedWorkout = {
     templateId: t.id,
     name: built.name,
@@ -128,23 +144,74 @@ function makeWorkout(
     ifactor: load.ifactor,
     blocks: built.blocks,
     purpose: t.purpose,
-    why: [...why, ...(t.science ? [t.science] : [])],
+    why: [...why, ...progWhy, ...(t.science ? [t.science] : [])],
     fueling: '',
     key: t.key,
+    level: lvl,
+    progression: wl ? { zone: wl.zone, workoutLevel: wl.level, athleteLevel: pl, difficulty } : undefined,
     ...overrides,
   };
-  w.fueling = fuelingFor(w, ctx.input.profile.weightKg);
+  w.fueling = fuelingFor(w, weightKg);
   return w;
+}
+
+function makeWorkout(t: WorkoutTemplate, durationMin: number, level: number, ctx: Ctx, why: string[], overrides: Partial<PlannedWorkout> = {}): PlannedWorkout {
+  return instantiate(t, durationMin, level, ctx.input.profile.weightKg, ctx.input.progression, why.filter((x) => !/ for you: workout level /.test(x)), overrides);
+}
+
+/** Template level whose workout level is closest to a target (overshooting is penalised). */
+export function levelForTarget(t: WorkoutTemplate, durationMin: number, target: number): number {
+  let best = 0;
+  let bestD = Infinity;
+  const d = Math.max(t.minMin, Math.min(t.maxMin, Math.round(durationMin / 5) * 5));
+  for (let l = 0; l < t.levels; l++) {
+    const wl = workoutLevel(t.id, t.build(d, l).blocks)?.level ?? 1;
+    const dist = wl > target + 0.5 ? (wl - target) * 2 : Math.abs(wl - target);
+    if (dist < bestD - 1e-9) {
+      bestD = dist;
+      best = l;
+    }
+  }
+  return best;
 }
 
 function isHard(w: PlannedWorkout | null | undefined): boolean {
   return !!w && (w.key || w.intensity === 'hard' || w.category === 'race');
 }
 
-/** Progression level from phase progress, readiness and recent history. */
-function levelFor(t: WorkoutTemplate, ctx: Ctx): number {
+/**
+ * Template level for this week. With progression history (TrainerRoad-style), aim for a
+ * "productive" workout level just above your current level for that energy system —
+ * achievable in recovery weeks or when readiness is down, a stretch late in a block.
+ * Without history, fall back to phase progress.
+ */
+/** Target workout level for this template this week, if progression history exists. */
+function progressionTarget(t: WorkoutTemplate, ctx: Ctx): number | null {
+  const { mw, input } = ctx;
+  if (t.levels <= 1) return null;
+  const zone = TEMPLATE_ZONE[t.id];
+  const pl = zone && zone !== 'endurance' ? input.progression?.[zone] : undefined;
+  if (!pl || pl.source !== 'history') return null;
+  let delta: number;
+  if (mw.weekType === 'recovery') delta = -1.5;
+  else if (mw.weekType === 'taper' || mw.weekType === 'race') delta = -1;
+  else if (['peak', 'realization', 'specific'].includes(mw.phase)) delta = 1;
+  else if (mw.phase === 'prep') delta = -0.5;
+  else delta = [0.3, 0.8, 1.2, 1.2][Math.max(0, Math.min(3, mw.loadStep - 1))];
+  if (input.readiness.status === 'amber') delta -= 1;
+  if (input.readiness.status === 'red') delta -= 2;
+  return pl.level + delta;
+}
+
+function levelFor(t: WorkoutTemplate, ctx: Ctx, durationMin: number): number {
   const { mw, profile, input } = ctx;
   if (t.levels <= 1) return 0;
+  const tgt = progressionTarget(t, ctx);
+  if (tgt != null) {
+    let lvl = levelForTarget(t, durationMin, tgt);
+    if (profile.levelCap != null) lvl = Math.min(lvl, profile.levelCap);
+    return lvl;
+  }
   const progress = mw.phaseWeeks > 1 ? (mw.weekInPhase - 1) / (mw.phaseWeeks - 1) : 0.5;
   let lvl: number;
   if (mw.weekType === 'recovery') lvl = 0;
@@ -189,6 +256,7 @@ export function planWeek(input: PlanInput): WeekPlan {
     `${PHASE_LABELS[mw.phase]} · week ${mw.weekInPhase}/${mw.phaseWeeks}${mw.weekType !== 'load' ? ` · ${mw.weekType.replace('_', ' ')} week` : ''}: ${mw.focus}.`,
   );
   if (profile.note) ctx.summary.push(profile.note);
+  if (input.loadFocus?.shortage) ctx.summary.push(`Load focus: ${input.loadFocus.headline}`);
 
   // ---------- 1. fixed days ----------
   let fixedHard = 0;
@@ -227,7 +295,8 @@ export function planWeek(input: PlanInput): WeekPlan {
       if (w.key) fixedHard++;
     } else if (c.status === 'pinned' && c.pinned && WORKOUT_BY_ID[c.pinned.workoutId]) {
       const t = getTemplate(c.pinned.workoutId);
-      const w = makeWorkout(t, c.pinned.durationMin, levelFor(t, ctx), ctx, ['You picked this workout for this day.'], { fixed: 'pinned' });
+      const lvl = c.pinned.level ?? levelFor(t, ctx, c.pinned.durationMin);
+      const w = makeWorkout(t, c.pinned.durationMin, lvl, ctx, ['You picked this workout for this day.'], { fixed: 'pinned' });
       ctx.rides[d] = w;
       ctx.locked.add(d);
       if (isHard(w)) fixedHard++;
@@ -334,7 +403,8 @@ export function planWeek(input: PlanInput): WeekPlan {
     });
     const eventCap = longRideCap(goal.eventType, goal.eventDurationHours);
     const progressionCap = trends.longestRideMin28 > 0 ? Math.max(150, Math.round(trends.longestRideMin28 * 1.25 + 15)) : 180;
-    const target = Math.max(90, budget * profile.longRideShare);
+    const share = profile.longRideShare + (input.loadFocus?.shortage === 'low' ? 0.05 : 0) + (trends.aerobic?.verdict === 'needs_work' && ['base', 'prep', 'accumulation', 'volume'].includes(mw.phase) ? 0.03 : 0);
+    const target = Math.max(90, budget * share);
     const pick = (d: ISODate) => {
       const duration = Math.min(ctx.cap[d], eventCap, progressionCap, target);
       const options = profile.longRide!.filter((id) => WORKOUT_BY_ID[id] && WORKOUT_BY_ID[id].minMin <= duration);
@@ -359,7 +429,7 @@ export function planWeek(input: PlanInput): WeekPlan {
           ? `Capped at ${fmtMinutes(progressionCap)} (~25% above your recent longest ride) to progress safely.`
           : `About ${Math.round((duration / Math.max(1, budget)) * 100)}% of this week’s riding.`,
       ];
-      ctx.rides[longDay] = makeWorkout(t, duration, levelFor(t, ctx), ctx, why);
+      ctx.rides[longDay] = makeWorkout(t, duration, levelFor(t, ctx, duration), ctx, why);
       ctx.locked.add(longDay);
     }
   } else if (groupLong) {
@@ -421,18 +491,46 @@ export function planWeek(input: PlanInput): WeekPlan {
   bestCombo.sort();
   const usedTemplates = new Set<string>();
   const keyTotal = bestCombo.length + fixedHard + (longIsHard ? 1 : 0);
+  const focus = input.loadFocus?.shortage ?? null;
+  const prefer = (id: string): number => {
+    const z = TEMPLATE_ZONE[id];
+    let s = 0;
+    if (focus === 'anaerobic' && z === 'anaerobic') s += 2;
+    if (focus === 'high' && (z === 'threshold' || z === 'vo2max' || z === 'sweetspot')) s += 1;
+    if (focus === 'low' && (z === 'tempo' || z === 'sweetspot')) s += 1;
+    if (input.limiter && z === input.limiter) s += 1;
+    return s;
+  };
+  // Missed key session from the last few days → reschedule it first (JOIN-style)
+  const carry = (input.carryOver ?? []).find((c) => WORKOUT_BY_ID[c.templateId]?.key && mw.weekType !== 'recovery' && mw.weekType !== 'race');
+  if (carry && bestCombo.length) ctx.summary.push(`You missed ${carry.name} on ${dowLong(carry.date)} — it’s been rescheduled as this week’s first quality session.`);
   bestCombo.forEach((d, i) => {
     const slot = profile.slots[Math.min(i, profile.slots.length - 1)] ?? ['sweetspot'];
-    let id = slot[(mw.index + i) % slot.length];
-    if (!profile.allowBackToBack && usedTemplates.has(id)) id = slot.find((x) => !usedTemplates.has(x)) ?? id;
+    const rotated = slot.map((_, k) => slot[(mw.index + i + k) % slot.length]);
+    const ranked = [...rotated].sort((a, b) => prefer(b) - prefer(a));
+    let id = ranked[0];
+    if (i === 0 && carry) id = carry.templateId;
+    if (!profile.allowBackToBack && usedTemplates.has(id)) id = ranked.find((x) => !usedTemplates.has(x)) ?? id;
     usedTemplates.add(id);
     const t = getTemplate(id);
     const cap = ctx.cap[d];
-    const target = Math.min(cap, Math.max(t.minMin, 75));
-    const lvl = levelFor(t, ctx);
+    let target = Math.min(cap, Math.max(t.minMin, 75));
+    // Give the session enough time to reach a productive level for you (within the day's cap)
+    const tgtLevel = progressionTarget(t, ctx);
+    if (tgtLevel != null && week.hours >= 6) {
+      for (const dur of [75, 90, 105, 120]) {
+        if (dur > cap) break;
+        target = Math.max(t.minMin, dur);
+        const wl = workoutLevel(t.id, t.build(target, levelFor(t, ctx, target)).blocks)?.level ?? 0;
+        if (wl >= tgtLevel - 0.5) break;
+      }
+    }
+    const lvl = levelFor(t, ctx, target);
     const why = [
-      `Quality session ${i + 1 + fixedHard + (longIsHard ? 1 : 0)} of ${keyTotal} this week (${PHASE_LABELS[mw.phase].toLowerCase()} phase, level ${lvl + 1}/${t.levels}).`,
+      `Quality session ${i + 1 + fixedHard + (longIsHard ? 1 : 0)} of ${keyTotal} this week (${PHASE_LABELS[mw.phase].toLowerCase()} phase).`,
     ];
+    if (i === 0 && carry) why.push(`Rescheduled from ${dowLong(carry.date)}, when it was missed.`);
+    else if (prefer(id) > 0 && focus) why.push(`Chosen partly to fill your ${focus === 'low' ? 'low aerobic' : focus === 'high' ? 'high aerobic' : 'anaerobic'} load shortage.`);
     const prev = addDays(d, -1);
     if (!isHard(ctx.rides[prev]) && !bestCombo.includes(prev)) why.push('Placed after an easy/rest day so you start it fresh.');
     if (cap < t.minMin) ctx.warnings.push(`${dowLong(d)} has less time (${cap} min) than ${t.name} needs (${t.minMin} min).`);
@@ -502,15 +600,15 @@ export function planWeek(input: PlanInput): WeekPlan {
       t = getTemplate('recovery');
       mins = Math.min(mins, 60);
       why.push(afterHard ? 'Easy day after a hard one — absorb the work.' : 'Short, easy spin — keeps the legs moving without adding fatigue.');
-    } else if (!varietyUsed && !afterHard && profile.variety.length && mins >= 60) {
-      t = getTemplate(profile.variety[mw.index % profile.variety.length]);
+    } else if (!varietyUsed && !afterHard && profile.variety.length && mins >= 60 && focus !== 'low') {
+      t = getTemplate(focus === 'anaerobic' ? 'end_sprints' : profile.variety[mw.index % profile.variety.length]);
       varietyUsed = true;
       why.push('Easy aerobic ride with a little neuromuscular work for variety.');
     } else {
       t = getTemplate('endurance');
       why.push(afterHard ? 'Easy endurance after a hard day — keep it truly Zone 2.' : 'Aerobic volume — stay below LT1 (you can talk in full sentences).');
     }
-    ctx.rides[d] = makeWorkout(t, Math.max(t.minMin, mins), levelFor(t, ctx), ctx, why);
+    ctx.rides[d] = makeWorkout(t, Math.max(t.minMin, mins), levelFor(t, ctx, mins), ctx, why);
     ctx.locked.add(d);
   }
 
@@ -528,7 +626,7 @@ export function planWeek(input: PlanInput): WeekPlan {
       const longCap = d === longDay ? Math.min(longRideCap(goal.eventType, goal.eventDurationHours), Math.max(150, trends.longestRideMin28 * 1.25 + 15)) : Infinity;
       const newDur = Math.min(w.durationMin + add, longCap);
       if (newDur - w.durationMin < 15) continue;
-      const nw = makeWorkout(t, newDur, levelFor(t, ctx), ctx, w.why);
+      const nw = makeWorkout(t, newDur, w.level ?? levelFor(t, ctx, newDur), ctx, w.why);
       remaining -= nw.durationMin - w.durationMin;
       ctx.rides[d] = nw;
     }
@@ -568,7 +666,7 @@ export function planWeek(input: PlanInput): WeekPlan {
         if (!w || w.fixed || w.key) continue;
         const t = getTemplate(w.templateId);
         if (w.durationMin - 15 >= t.minMin) {
-          ctx.rides[d] = makeWorkout(t, w.durationMin - 15, levelFor(t, ctx), ctx, w.why);
+          ctx.rides[d] = makeWorkout(t, w.durationMin - 15, w.level ?? levelFor(t, ctx, w.durationMin - 15), ctx, w.why);
           changed = true;
         }
       }
@@ -642,27 +740,66 @@ export function planWeek(input: PlanInput): WeekPlan {
   };
 }
 
-/** Build a single workout for manual swaps in the UI. */
-export function buildSwap(templateId: string, durationMin: number, level: number, weightKg: number | null): PlannedWorkout {
-  const t = getTemplate(templateId);
-  const d = Math.max(t.minMin, Math.min(t.maxMin, Math.round(durationMin / 5) * 5));
-  const built = t.build(d, Math.max(0, Math.min(t.levels - 1, level)));
-  const load = blocksLoad(built.blocks);
-  const w: PlannedWorkout = {
-    templateId: t.id,
-    name: built.name,
-    category: t.category,
-    intensity: t.intensity,
-    durationMin: Math.round(load.seconds / 60),
-    tss: load.tss,
-    ifactor: load.ifactor,
-    blocks: built.blocks,
-    purpose: t.purpose,
-    why: ['Swapped in by you.', ...(t.science ? [t.science] : [])],
-    fueling: '',
-    key: t.key,
-    fixed: 'pinned',
+export interface Alternative {
+  label: string;
+  hint: string;
+  templateId: string;
+  level: number;
+  durationMin: number;
+  workout: PlannedWorkout;
+}
+
+/**
+ * Smart swaps for a planned ride (inspired by JOIN's "replace workout", Garmin's
+ * alternative suggestions and TrainerRoad's easier/harder alternates).
+ */
+export function workoutAlternatives(w: PlannedWorkout, progression: Progression | undefined, weightKg: number | null): Alternative[] {
+  if (w.fixed === 'group' || w.category === 'race' || !WORKOUT_BY_ID[w.templateId]) return [];
+  const t = getTemplate(w.templateId);
+  const zone = TEMPLATE_ZONE[t.id];
+  const pl = zone && zone !== 'endurance' && progression?.[zone]?.source === 'history' ? progression[zone].level : null;
+  const cur = w.level ?? 0;
+  const out: Alternative[] = [];
+  const curLoad = w.progression?.workoutLevel ?? w.tss;
+  const add = (label: string, hint: string, tid: string, level: number, dur: number) => {
+    const tt = getTemplate(tid);
+    const lvl = Math.max(0, Math.min(tt.levels - 1, level));
+    const wk = instantiate(tt, dur, lvl, weightKg, progression, ['Swapped in by you.']);
+    if (out.some((o) => o.workout.name === wk.name && Math.abs(o.workout.durationMin - wk.durationMin) < 5)) return;
+    if (wk.name === w.name && Math.abs(wk.durationMin - w.durationMin) < 5) return;
+    const load = w.progression ? wk.progression?.workoutLevel ?? wk.tss : wk.tss;
+    if (label === 'Easier' && !(load < curLoad)) return;
+    if (label === 'Harder' && !(load > curLoad)) return;
+    out.push({ label, hint, templateId: tid, level: lvl, durationMin: dur, workout: wk });
   };
-  w.fueling = fuelingFor(w, weightKg);
-  return w;
+  if (t.key || t.intensity !== 'easy') {
+    const easier = pl != null ? levelForTarget(t, w.durationMin, pl - 1) : cur - 2;
+    const harder = pl != null ? levelForTarget(t, w.durationMin, pl + 1.8) : cur + 2;
+    add('Easier', 'Achievable — for a tired day', t.id, Math.min(easier, cur - 1), w.durationMin);
+    for (const extra of [0, 15, 30]) {
+      const dur = Math.min(t.maxMin, w.durationMin + extra);
+      const lvl = pl != null ? Math.max(levelForTarget(t, dur, pl + 1.8), cur + 1) : Math.max(harder, cur + 1);
+      const before = out.length;
+      add('Harder', extra ? `Stretch — needs ${extra} min more` : 'Stretch — when you feel great', t.id, lvl, dur);
+      if (out.length > before) break;
+    }
+    add('Shorter', 'Same session, less time', t.id, cur, Math.max(t.minMin, w.durationMin - 30));
+    const SIMILAR: Record<string, string[]> = { sweetspot: ['tempo', 'over_under'], tempo: ['sweetspot'], durability: ['gravel_sim'], gravel_sim: ['durability'] };
+    const same = [
+      ...Object.keys(TEMPLATE_ZONE).filter((id) => id !== t.id && TEMPLATE_ZONE[id] === zone && WORKOUT_BY_ID[id].key),
+      ...(SIMILAR[t.id] ?? []),
+    ].filter((id, i, arr) => arr.indexOf(id) === i && id !== t.id && WORKOUT_BY_ID[id].minMin <= w.durationMin + 5);
+    for (const id of same.slice(0, 2)) {
+      const tt = getTemplate(id);
+      const lvl = pl != null ? levelForTarget(tt, w.durationMin, pl + 0.5) : Math.round(((tt.levels - 1) * cur) / Math.max(1, t.levels - 1));
+      add(`Same focus: ${tt.name}`, `Different ${zone ? PROG_LABEL[zone].toLowerCase() : ''} session`, id, lvl, w.durationMin);
+    }
+    add('Endurance instead', 'Keep the time, drop the intensity', 'endurance', 0, w.durationMin);
+  } else {
+    add('Shorter', 'Less time, same purpose', t.id, cur, Math.max(t.minMin, w.durationMin - 30));
+    add('Longer', '+30 min of Zone 2', t.id, cur, Math.min(t.maxMin, w.durationMin + 30));
+    if (t.id !== 'end_sprints') add('Add sprints', 'Neuromuscular touch', 'end_sprints', 0, Math.max(60, w.durationMin));
+    if (t.id !== 'recovery') add('Recovery spin', 'Very easy, 45 min', 'recovery', 0, 45);
+  }
+  return out;
 }

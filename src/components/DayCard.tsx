@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { dowShort, fmtMinutes, fromISO } from '../engine/dates';
 import type { AthleteProfile, Block, PlannedDay, TargetMode } from '../engine/types';
+import { workoutAlternatives } from '../engine/planner';
+import { DIFFICULTY_LABEL, type Difficulty, type Progression } from '../engine/progression';
 import { WORKOUTS } from '../engine/workouts';
+import { workoutToZwo } from '../engine/zwo';
 import { Skyline } from './charts';
+import { DifficultyChip, downloadZwo } from './insights';
 import { CATEGORY_LABEL, hrFor, IntensityChip, watts } from './ui';
 
 function fmtStep(sec: number) {
@@ -75,7 +79,8 @@ export function DayCard(props: {
   mode: TargetMode;
   isToday: boolean;
   customized: boolean;
-  onSwap: (templateId: string, durationMin: number) => void;
+  progression: Progression;
+  onSwap: (templateId: string, durationMin: number, level?: number) => void;
   onRest: () => void;
   onReset: () => void;
 }) {
@@ -99,6 +104,7 @@ export function DayCard(props: {
           <div className="name">{title}</div>
           <div className="day-meta">
             {r && <IntensityChip intensity={r.intensity} category={r.category} />}
+            {r && r.key && <DifficultyChip difficulty={r.progression?.difficulty} />}
             {day.strength && <span className="chip">🏋 {day.strength.title}</span>}
             {r?.fixed === 'group' && <span className="chip">Your group ride</span>}
             {r?.fixed === 'pinned' && <span className="chip">Your pick</span>}
@@ -200,7 +206,31 @@ export function DayCard(props: {
           {day.mobility && <p className="small ink2">{day.mobility}</p>}
 
           <div className="divider" />
-          <div className="setup-extra">
+          {r && (() => {
+            const alts = workoutAlternatives(r, props.progression, profile?.weightKg ?? null);
+            return alts.length ? (
+              <div className="stack">
+                <h3>Swap</h3>
+                <div className="alts">
+                  {alts.map((a) => (
+                    <button key={a.label} className="alt" onClick={() => props.onSwap(a.templateId, a.durationMin, a.level)}>
+                      <b>{a.label}</b>
+                      <span>
+                        {a.workout.name} · {fmtMinutes(a.workout.durationMin)}
+                      </span>
+                      <span className="muted">
+                        {a.workout.progression?.difficulty ? `${DIFFICULTY_LABEL[a.workout.progression.difficulty as Difficulty]} · ` : ''}
+                        {a.hint}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null;
+          })()}
+          <details className="more">
+            <summary>Pick any workout…</summary>
+          <div className="setup-extra" style={{ marginTop: 8 }}>
             <label className="field">
               <span>Swap workout</span>
               <select className="select" value={swapId} onChange={(e) => setSwapId(e.target.value)}>
@@ -225,12 +255,20 @@ export function DayCard(props: {
             <button className="btn sm" onClick={() => props.onSwap(swapId, swapDur)}>
               Use this
             </button>
+          </div>
+          </details>
+          <div className="row">
             <button className="btn sm ghost" onClick={props.onRest}>
               Can’t train
             </button>
             {customized && (
               <button className="btn sm ghost" onClick={props.onReset}>
                 Reset day
+              </button>
+            )}
+            {r && r.blocks.length > 0 && (
+              <button className="btn sm ghost" onClick={() => downloadZwo(r.name, workoutToZwo(r))}>
+                Download .zwo
               </button>
             )}
           </div>

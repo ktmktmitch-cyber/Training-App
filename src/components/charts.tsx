@@ -38,6 +38,14 @@ export interface LineSeries {
   color: string;
   values: (number | null)[];
   width?: number;
+  opacity?: number;
+}
+
+export interface Zone {
+  from: number;
+  to: number;
+  color: string;
+  label: string;
 }
 
 export function LineChart(props: {
@@ -49,8 +57,10 @@ export function LineChart(props: {
   zeroLine?: boolean;
   tickLabel?: (label: string, i: number) => string | null;
   title?: string;
+  zones?: Zone[];
+  marker?: number; // index of a vertical "today" marker
 }) {
-  const { labels, series, band, height = 180, yFormat = (v) => String(Math.round(v)), zeroLine, tickLabel } = props;
+  const { labels, series, band, height = 180, yFormat = (v) => String(Math.round(v)), zeroLine, tickLabel, zones, marker } = props;
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const padL = 36;
@@ -65,6 +75,10 @@ export function LineChart(props: {
   if (zeroLine) all.push(0);
   let min = Math.min(...all);
   let max = Math.max(...all);
+  if (zones) {
+    min = Math.min(min, -32);
+    max = Math.max(max, 27);
+  }
   const pad = (max - min) * 0.08 || 1;
   min -= pad;
   max += pad;
@@ -109,7 +123,7 @@ export function LineChart(props: {
         <div className="legend">
           {series.map((s) => (
             <span key={s.name}>
-              <i style={{ background: s.color }} />
+              <i style={{ background: s.color, opacity: s.opacity ?? 1 }} />
               {s.name}
             </span>
           ))}
@@ -130,10 +144,34 @@ export function LineChart(props: {
             </text>
           </g>
         ))}
+        {zones?.map((z) => {
+          const top = y(Math.min(z.to, max));
+          const bot = y(Math.max(z.from, min));
+          if (bot - top <= 0) return null;
+          return (
+            <g key={z.label}>
+              <rect x={padL} y={top} width={Math.max(0, width - padL - padR)} height={bot - top} fill={z.color} opacity={0.1} />
+              {bot - top >= 16 && (
+                <text
+                  x={padL + 6}
+                  y={(top + bot) / 2 + 3.5}
+                  fontSize={10}
+                  fill="var(--muted)"
+                  stroke="var(--surface)"
+                  strokeWidth={3}
+                  paintOrder="stroke"
+                >
+                  {z.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
         {zeroLine && min < 0 && max > 0 && <line x1={padL} x2={width - padR} y1={y(0)} y2={y(0)} stroke="var(--axis)" strokeWidth={1} />}
+        {marker != null && <line x1={x(marker)} x2={x(marker)} y1={padT} y2={height - padB} stroke="var(--axis)" strokeWidth={1} />}
         {bandPath && <path d={bandPath} fill={band!.color} opacity={0.14} />}
         {series.map((s) => (
-          <path key={s.name} d={path(s.values)} fill="none" stroke={s.color} strokeWidth={s.width ?? 2} strokeLinejoin="round" strokeLinecap="round" />
+          <path key={s.name} d={path(s.values)} fill="none" stroke={s.color} strokeWidth={s.width ?? 2} strokeLinejoin="round" strokeLinecap="round" opacity={s.opacity ?? 1} />
         ))}
         {labels.map((l, i) => {
           const txt = tickLabel ? tickLabel(l, i) : i % tickEvery === 0 ? l : null;
@@ -226,7 +264,10 @@ export function BarChart(props: {
             <g key={i} onPointerEnter={() => setHover(i)}>
               <rect x={padL + band * i} y={padT} width={band} height={height - padT - padB} fill="transparent" />
               {d && <path d={d} fill={color} opacity={highlight != null && highlight !== i ? 0.55 : hover != null && hover !== i ? 0.75 : 1} />}
-              {(i % Math.max(1, Math.ceil(n / Math.floor(width / 48))) === 0 || i === n - 1) && (
+              {(() => {
+                const step = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(width / 52))));
+                return (i % step === 0 && n - 1 - i >= Math.ceil(step / 2)) || i === n - 1;
+              })() && (
                 <text x={cx} y={height - 6} textAnchor="middle" fontSize={11} fill="var(--muted)">
                   {labels[i]}
                 </text>

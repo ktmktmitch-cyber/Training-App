@@ -21,6 +21,21 @@ export function GuidePage() {
           <li>Interval sessions progress through levels (more time in zone) across each phase, start conservatively if you haven’t done intensity recently, and step down when readiness is amber/red.</li>
         </ul>
 
+        <h2>Ideas borrowed from the best training apps</h2>
+        <ul>
+          <li><b>Progression levels (TrainerRoad):</b> each energy system (endurance, tempo, sweet spot, threshold, VO2max, anaerobic) has a 1-10 level built from the sustained efforts intervals.icu detects in your rides. Every workout has a level on the same scale and is labelled Achievable / Productive / Stretch for you. Levels fade slowly when you don’t train a system.</li>
+          <li><b>Post-ride feel & RPE (JOIN, TrainerRoad):</b> tell the app how hard a ride felt (or log RPE in intervals.icu). “Easy” nudges that level up, “All out” or “Couldn’t finish” nudges it down.</li>
+          <li><b>Missed sessions & swaps (JOIN):</b> a key session you missed in the last 3 days is rescheduled as the next quality session. Group rides you swap in count as intensity.</li>
+          <li><b>Smart alternatives (JOIN, Garmin, TrainerRoad):</b> every ride offers Easier / Harder / Shorter / same-focus / endurance-instead swaps that respect your levels.</li>
+          <li><b>Training Load Focus & Training Status (Garmin):</b> your last 4 weeks split into low aerobic / high aerobic / anaerobic load against the target for your phase. A shortage steers which sessions get picked. A one-word status (Productive, Maintaining, Peaking, Recovery, Strained, Overreaching, Unproductive, Detraining) sums up whether the training is working.</li>
+          <li><b>Readiness factors (Garmin Training Readiness / HRV Status):</b> HRV Balanced/Unbalanced/Low, resting HR, form zone and sleep shown as separate factors.</li>
+          <li><b>Compliance colours (TrainingPeaks):</b> last 7 days planned vs done. Green 80-120%, yellow 50-80 / 120-150%, orange beyond that, red missed.</li>
+          <li><b>Performance Management Chart with projection (TrainingPeaks) and form zones (intervals.icu):</b> fitness/fatigue continue into the planned week, and form is shaded High risk / Optimal / Grey / Fresh / Transition.</li>
+          <li><b>Power profile & rider type (JOIN, Wahoo 4DP, TrainingPeaks):</b> 5 s / 1 min / 5 min / FTP estimated from intervals.icu’s power-duration model. Your limiter is favoured when a phase offers a choice.</li>
+          <li><b>Aerobic decoupling & efficiency factor (TrainingPeaks, intervals.icu):</b> a check on whether your aerobic base is ready for more intensity, which also nudges long-ride volume in base.</li>
+          <li><b>Workout files (TrainingPeaks, JOIN):</b> download any session as a Zwift .zwo, or send the week to intervals.icu so it lands on your Garmin.</li>
+        </ul>
+
         <h2>Macro periodization options</h2>
         <ul>
           <li><b>Traditional (linear):</b> prep → base (Zone 2 + tempo/sweet spot) → build (threshold + VO2max) → peak (race-specific) → taper. 3:1 load:recovery by default.</li>

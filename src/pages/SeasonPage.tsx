@@ -205,6 +205,8 @@ export function SeasonPage() {
                 <th>Type</th>
                 <th className="num">Volume</th>
                 <th className="num">≈ Hours</th>
+                <th className="num">TSS target</th>
+                <th className="num">CTL (end)</th>
                 <th>Strength</th>
                 <th>Focus</th>
                 <th>Races</th>
@@ -223,6 +225,11 @@ export function SeasonPage() {
                   <td>{w.weekType === 'hit_block' ? 'HIT block' : w.weekType}</td>
                   <td className="num">{Math.round(w.volumeFactor * 100)}%</td>
                   <td className="num">{(g.typicalWeeklyHours * w.volumeFactor).toFixed(1)}</td>
+                  <td className="num">{Math.round(g.typicalWeeklyHours * w.volumeFactor * w.estTssPerHour)}</td>
+                  <td className="num">{(() => {
+                    const pt = proj.points.find((p) => p.date >= w.start && p.date <= addDays(w.start, 6));
+                    return pt ? Math.round(pt.ctl) : '—';
+                  })()}</td>
                   <td>{w.strengthPhase}</td>
                   <td style={{ whiteSpace: 'normal', minWidth: 220 }}>{w.focus}</td>
                   <td>{w.races.map((r) => `${r.category.replace('RACE_', '')}: ${r.name} (${fmtShort(r.date)})`).join(', ')}</td>

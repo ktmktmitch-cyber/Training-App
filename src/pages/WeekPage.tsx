@@ -4,6 +4,7 @@ import { workoutDescription } from '../engine/icuExport';
 import { PHASE_LABELS } from '../engine/periodization';
 import type { DayConfig } from '../engine/types';
 import { DayCard } from '../components/DayCard';
+import { ComplianceStrip, NextWorkoutCard } from '../components/insights';
 import { ReadinessCard } from '../components/ReadinessCard';
 import { Seg, useToast } from '../components/ui';
 import { WeekSetup } from '../components/WeekSetup';
@@ -83,7 +84,20 @@ export function WeekPage() {
 
       {app.data.info && <div className="callout">{app.data.info}</div>}
 
+      <NextWorkoutCard
+        day={plan.days[0]}
+        readiness={app.readiness}
+        status={app.status}
+        ftp={app.ftp}
+        isToday={plan.days[0].date === app.asOf}
+        progression={app.progression}
+        weightKg={app.profile?.weightKg ?? null}
+        onPick={(id, dur, level) => setDay(plan.days[0].date, { ...(week.days[plan.days[0].date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
+      />
+
       <ReadinessCard r={app.readiness} asOf={app.asOf} checkIn={app.checkIn} onCheckIn={app.setCheckIn} />
+
+      <ComplianceStrip days={app.compliance} feedback={app.feedback} onFeedback={app.setFeedback} />
 
       <div className="card">
         <div className="card-head" style={{ marginBottom: editing ? 12 : 0 }}>
@@ -143,7 +157,8 @@ export function WeekPage() {
             mode={settings.prefs.targetMode}
             isToday={d.date === app.asOf}
             customized={!!week.days[d.date] && week.days[d.date].status !== 'available'}
-            onSwap={(id, dur) => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur } })}
+            progression={app.progression}
+            onSwap={(id, dur, level) => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
             onRest={() => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'off' })}
             onReset={() => setDay(d.date, null)}
           />

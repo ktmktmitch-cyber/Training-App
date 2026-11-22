@@ -1,6 +1,7 @@
 // Synthetic, deterministic demo data so the app can be explored without a connection.
 import { addDays, dow } from '../engine/dates';
 import { ewma } from '../engine/stats';
+import type { PlanSnapshot } from '../engine/compliance';
 import type { Activity, AthleteProfile, CalendarEvent, ISODate, Wellness } from '../engine/types';
 
 function rng(seed: number) {
@@ -23,6 +24,9 @@ export const DEMO_PROFILE: AthleteProfile = {
   powerZones: [55, 75, 90, 105, 120, 150, 999],
   hrZones: [137, 154, 162, 172, 177, 182, 192],
   sex: null,
+  cp: 262,
+  wPrime: 19500,
+  pMax: 1120,
 };
 
 export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: Activity[]; wellness: Wellness[]; events: CalendarEvent[] } {
@@ -38,7 +42,7 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
     const week = Math.floor((days - i) / 7);
     const recoveryWeek = week % 4 === 3;
     let load = 0;
-    const mk = (name: string, min: number, ifac: number, zones: number[], hard = false): Activity => {
+    const mk = (name: string, min: number, ifac: number, zones: number[], hard = false, rpe: number | null = null): Activity => {
       const secs = min * 60;
       const tot = zones.reduce((a, b) => a + b, 0);
       const z = zones.map((x) => Math.round((x / tot) * secs));
@@ -57,12 +61,16 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
         powerZoneSecs: z,
         hrZoneSecs: [z[0] + z[1] * 0.6, z[1] * 0.4 + z[2] * 0.5, z[2] * 0.5, z[3], z[4], z[5], z[6]].map(Math.round),
         source: 'demo',
+        ssSecs: Math.round(z[2] * 0.3 + z[3] * 0.7),
+        decoupling: ifac < 0.75 && min >= 75 ? Math.round((3 + r() * 5) * 10) / 10 : null,
+        efficiencyFactor: Math.round((1.38 + week * 0.004 + r() * 0.05) * 1000) / 1000,
+        rpe,
       };
     };
     const scale = recoveryWeek ? 0.6 : 1;
-    if (d === 2) activities.push(mk('Threshold 3×12', 75 * scale, recoveryWeek ? 0.68 : 0.83, recoveryWeek ? [30, 60, 10, 0, 0, 0, 0] : [25, 35, 8, 30, 2, 0, 0], !recoveryWeek));
+    if (d === 2) activities.push(mk('Threshold 3×12', 75 * scale, recoveryWeek ? 0.68 : 0.83, recoveryWeek ? [30, 60, 10, 0, 0, 0, 0] : [25, 35, 8, 30, 2, 0, 0], !recoveryWeek, recoveryWeek ? null : 7));
     if (d === 3) activities.push(mk('Endurance', 60 * scale, 0.66, [25, 70, 5, 0, 0, 0, 0]));
-    if (d === 4 && !recoveryWeek) activities.push(mk('VO2 5×4', 70, 0.84, [30, 35, 5, 6, 22, 2, 0], true));
+    if (d === 4 && !recoveryWeek) activities.push(mk('VO2 5×4', 70, 0.84, [30, 35, 5, 6, 22, 2, 0], true, 8));
     if (d === 6) activities.push(mk('Group ride', 150 * scale, 0.78, [20, 45, 18, 10, 5, 1.5, 0.5], !recoveryWeek));
     if (d === 0) activities.push(mk('Long endurance', 180 * scale, 0.68, [20, 72, 7, 1, 0, 0, 0]));
     if ((d === 1 || d === 4) && week < 14 && r() > 0.25) {
@@ -109,4 +117,23 @@ export function demoData(asOf: ISODate): { profile: AthleteProfile; activities: 
   for (let i = 7; i < wellness.length; i++) wellness[i].rampRate = (wellness[i].ctl ?? 0) - (wellness[i - 7].ctl ?? 0);
   const events: CalendarEvent[] = [{ id: 'demo-b', date: addDays(asOf, 54), category: 'RACE_B', name: 'Spring Road Race (demo)' }];
   return { profile: DEMO_PROFILE, activities, wellness, events };
+}
+
+/** A week of "what was planned" so the demo shows compliance colours and a missed session. */
+export function demoSnapshots(asOf: ISODate): Record<ISODate, PlanSnapshot> {
+  const out: Record<ISODate, PlanSnapshot> = {};
+  for (let i = 1; i <= 7; i++) {
+    const date = addDays(asOf, -i);
+    const d = dow(date);
+    const plan: Partial<Record<number, Omit<PlanSnapshot, 'date'>>> = {
+      2: { name: 'Threshold 3×12', templateId: 'threshold', durationMin: 75, tss: 74, key: true },
+      3: { name: 'Endurance', templateId: 'endurance', durationMin: 75, tss: 48, key: false },
+      4: { name: 'VO2max 5×4', templateId: 'vo2_long', durationMin: 70, tss: 72, key: true },
+      5: { name: 'Sweet Spot 3×12', templateId: 'sweetspot', durationMin: 70, tss: 66, key: true },
+      0: { name: 'Long Endurance', templateId: 'endurance', durationMin: 150, tss: 105, key: false },
+    };
+    const p = plan[d];
+    if (p) out[date] = { date, ...p };
+  }
+  return out;
 }

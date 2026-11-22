@@ -39,7 +39,7 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
     baseWin = hrvPts.filter((w) => inWindow(w, addDays(asOf, -60), asOf));
     shortBaseline = true;
   }
-  const hrv: Readiness['hrv'] = { today: null, avg7: null, baseline: null, low: null, high: null, cv7: null, trend: null };
+  const hrv: Readiness['hrv'] = { today: null, avg7: null, baseline: null, low: null, high: null, cv7: null, trend: null, status: null };
   let hrvBelow = false;
   if (recent.length >= 3 && baseWin.length >= 7) {
     signals++;
@@ -55,6 +55,7 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
     hrv.low = round(Math.exp(lo));
     hrv.high = round(Math.exp(hi));
     hrv.cv7 = lnRecent.length >= 3 ? round((sd(lnRecent) / avg7) * 100, 1) : null;
+    hrv.status = avg7 < mu - 2 * sigma ? 'poor' : avg7 < mu - sigma ? 'low' : avg7 < lo || avg7 > hi ? 'unbalanced' : 'balanced';
     const todayHrv = todayW?.hrv ?? null;
     hrv.today = todayHrv;
 

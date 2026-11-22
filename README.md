@@ -10,6 +10,22 @@ An adaptive **cycling + strength planner** that connects to **intervals.icu** (a
 
 Then **one tap sends the week to your intervals.icu calendar as structured workouts**, which intervals.icu syncs on to Garmin Connect (and Zwift/Wahoo if you use them).
 
+### Borrowed from the best training apps
+
+| Idea | Inspired by |
+|---|---|
+| Per-zone **progression levels** (1-10) from detected efforts; workouts labelled Achievable / Productive / Stretch | TrainerRoad |
+| **Post-ride feel / RPE** adapts your levels; **missed key sessions are rescheduled**; group rides count as intensity | JOIN, TrainerRoad |
+| **Smart swaps**: easier / harder / shorter / same focus / endurance instead | JOIN, Garmin, TrainerRoad |
+| **Training Load Focus** (low/high aerobic, anaerobic vs phase targets) steers session choice; **Training Status** label | Garmin |
+| **Readiness factors** and HRV status (Balanced / Unbalanced / Low) | Garmin |
+| **Next-workout hero** card with one-tap adjustments | Garmin daily suggested workout, JOIN |
+| **Compliance colours** for planned vs done | TrainingPeaks |
+| **PMC with planned-week projection**, weekly TSS targets (ATP) | TrainingPeaks |
+| **Form zones**, aerobic decoupling and efficiency-factor trends | intervals.icu, TrainingPeaks |
+| **Power profile & rider type**, limiter-aware session choice | JOIN, Wahoo 4DP, TrainingPeaks |
+| **.zwo export** for Zwift/indoor apps | TrainingPeaks, JOIN |
+
 ## Quick start
 
 ```bash
@@ -76,6 +92,12 @@ src/engine/            pure TypeScript training logic (unit-tested)
   planner.ts           the weekly planner
   strength.ts          strength phases, exercises by equipment, lift-day placement
   icuExport.ts         intervals.icu workout text + calendar events
+  progression.ts       per-zone progression levels, workout levels, difficulty labels
+  loadFocus.ts         4-week load focus vs phase targets
+  status.ts            training status + form zones
+  compliance.ts        planned vs done, missed key sessions
+  powerProfile.ts      power profile / rider type from CP, W′, Pmax
+  zwo.ts               Zwift workout export
 src/lib/               intervals.icu + Strava clients, storage, app state
 src/pages, components  React UI
 tests/                 vitest

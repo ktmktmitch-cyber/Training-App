@@ -133,6 +133,37 @@ export function computeTrends(activities: Activity[], wellness: Wellness[], asOf
     atl = series[series.length - 1].atl;
   }
 
+  // Aerobic decoupling (Pw:HR drift) on steady endurance rides: <5% ≈ well-developed aerobic base
+  const steady = past
+    .filter((a) => a.isRide && a.decoupling != null && a.movingSec >= 75 * 60 && (a.intensity ?? 0) > 0 && (a.intensity ?? 1) <= 0.78 && diffDays(asOf, a.date) < 42)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 6);
+  const decs = steady.map((a) => a.decoupling as number).sort((a, b) => a - b);
+  const median = decs.length >= 2 ? round(decs[Math.floor((decs.length - 1) / 2)] / 2 + decs[Math.ceil((decs.length - 1) / 2)] / 2, 1) : null;
+  const efOf = (from: number, to: number) => {
+    const v = past
+      .filter((a) => a.isRide && a.efficiencyFactor && a.movingSec >= 3600 && (a.intensity ?? 1) <= 0.8 && diffDays(asOf, a.date) >= from && diffDays(asOf, a.date) < to)
+      .map((a) => a.efficiencyFactor as number);
+    return v.length >= 2 ? mean(v) : null;
+  };
+  const efNow = efOf(0, 28);
+  const efPrev = efOf(28, 56);
+  const efChange = efNow && efPrev ? round(((efNow - efPrev) / efPrev) * 100, 1) : null;
+  const aerobic: Trends['aerobic'] = {
+    rides: steady.map((a) => ({ date: a.date, decoupling: round(a.decoupling as number, 1), ef: a.efficiencyFactor ?? null, minutes: Math.round(a.movingSec / 60) })),
+    median,
+    efChange,
+    verdict: median == null ? 'unknown' : median < 5 ? 'solid' : median < 8 ? 'developing' : 'needs_work',
+  };
+  if (median != null)
+    notes.push(
+      median < 5
+        ? `Aerobic decoupling on long easy rides is ${median}% (<5%) — your aerobic base is solid.`
+        : median < 8
+          ? `Aerobic decoupling on long easy rides is ${median}% — base still developing; keep the Zone 2 volume.`
+          : `Aerobic decoupling on long easy rides is ${median}% (>8%) — heart rate drifts a lot, so long steady Zone 2 rides are the priority (heat, dehydration and stops also raise it).`,
+    );
+
   if (longestRideMin28 > 0) notes.push(`Longest ride in the last 4 weeks: ${fmtMinutes(longestRideMin28)}.`);
   if (hardSessions14 === 0 && rides28.length > 0) notes.push('No high-intensity sessions in the last 2 weeks — interval levels start conservatively.');
   if (hardSessions14 >= 6) notes.push(`${hardSessions14} hard sessions in 14 days is a lot — make sure easy days are truly easy.`);
@@ -154,6 +185,7 @@ export function computeTrends(activities: Activity[], wellness: Wellness[], asOf
     daysSinceHard,
     ctl: ctl != null ? round(ctl, 1) : null,
     atl: atl != null ? round(atl, 1) : null,
+    aerobic,
     notes,
   };
 }

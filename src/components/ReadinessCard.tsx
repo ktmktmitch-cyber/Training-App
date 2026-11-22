@@ -1,12 +1,34 @@
-import type { CheckIn, Readiness } from '../engine/types';
+import { formZone } from '../engine/status';
+import type { CheckIn, Readiness, ReadinessStatus } from '../engine/types';
 import { ScoreRing } from './charts';
 import { Seg, STATUS, StatusIcon } from './ui';
 
 const FLAG_STATUS = { good: 'green', info: 'unknown', warn: 'amber', bad: 'red' } as const;
 
+function Factor({ status, label }: { status: ReadinessStatus; label: string }) {
+  return (
+    <div className="row tiny" style={{ gap: 5, marginTop: 4, flexWrap: 'nowrap' }}>
+      <StatusIcon status={status} />
+      <span style={{ fontWeight: 600 }}>{label}</span>
+    </div>
+  );
+}
+
 export function ReadinessCard({ r, asOf, checkIn, onCheckIn }: { r: Readiness; asOf: string; checkIn: CheckIn | null; onCheckIn: (c: CheckIn | null) => void }) {
   const s = STATUS[r.status];
   const sign = (v: number) => (v > 0 ? `+${Math.round(v)}` : `${Math.round(v)}`);
+  const hrvF = r.hrv.status
+    ? ({ balanced: ['green', 'Balanced'], unbalanced: ['amber', 'Unbalanced'], low: ['red', 'Low'], poor: ['red', 'Poor'] } as const)[r.hrv.status]
+    : null;
+  const rhrF =
+    r.rhr.avg7 != null && r.rhr.baseline != null && r.rhr.sd != null
+      ? r.rhr.avg7 > r.rhr.baseline + Math.max(r.rhr.sd, 2.5)
+        ? (['amber', 'Elevated'] as const)
+        : (['green', 'Normal'] as const)
+      : null;
+  const fz = r.tsb != null ? formZone(r.tsb) : null;
+  const formF = fz ? ([fz.tone === 'good' ? 'green' : fz.tone === 'bad' ? 'red' : 'unknown', fz.label] as const) : null;
+  const sleepF = r.sleepAvg3h != null ? (r.sleepAvg3h >= 7 ? (['green', 'Good'] as const) : r.sleepAvg3h >= 6 ? (['amber', 'Fair'] as const) : (['red', 'Poor'] as const)) : null;
   return (
     <div className="card">
       <div className="readiness">
@@ -27,21 +49,25 @@ export function ReadinessCard({ r, asOf, checkIn, onCheckIn }: { r: Readiness; a
                 {r.hrv.low != null ? `normal ${r.hrv.low}–${r.hrv.high}` : 'no data'}
                 {r.hrv.trend ? ` · ${r.hrv.trend === 'up' ? '↑' : r.hrv.trend === 'down' ? '↓' : '→'}` : ''}
               </div>
+              {hrvF && <Factor status={hrvF[0]} label={hrvF[1]} />}
             </div>
             <div className="metric">
               <div className="label">Resting HR · 7-day</div>
               <div className="value num">{r.rhr.avg7 != null ? `${Math.round(r.rhr.avg7)} bpm` : '—'}</div>
               <div className="sub num">{r.rhr.baseline != null ? `baseline ${Math.round(r.rhr.baseline)}` : 'no data'}</div>
+              {rhrF && <Factor status={rhrF[0]} label={rhrF[1]} />}
             </div>
             <div className="metric">
               <div className="label">Form (TSB)</div>
               <div className="value num">{r.tsb != null ? sign(r.tsb) : '—'}</div>
               <div className="sub num">{r.ctl != null ? `fitness ${Math.round(r.ctl)} · fatigue ${Math.round(r.atl ?? 0)}` : 'no data'}</div>
+              {formF && <Factor status={formF[0]} label={formF[1]} />}
             </div>
             <div className="metric">
               <div className="label">Sleep · 3-night</div>
               <div className="value num">{r.sleepAvg3h != null ? `${r.sleepAvg3h} h` : '—'}</div>
               <div className="sub num">{r.rampRate != null ? `CTL ramp ${r.rampRate >= 0 ? '+' : ''}${r.rampRate}/wk` : ''}</div>
+              {sleepF && <Factor status={sleepF[0]} label={sleepF[1]} />}
             </div>
           </div>
           <div className="flags">

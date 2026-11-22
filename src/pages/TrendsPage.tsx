@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
 import { addDays, diffDays, fmtShort } from '../engine/dates';
-import { mean, round, sd } from '../engine/stats';
+import { mean, projectLoad, round, sd } from '../engine/stats';
+import { FORM_ZONES } from '../engine/status';
 import { loadSeries } from '../engine/trends';
 import { BarChart, LineChart } from '../components/charts';
+import { AerobicCard, LoadFocusCard, PowerProfileCard, ProgressionCard, StatusChip } from '../components/insights';
 import { useApp } from '../lib/store';
 
 function rolling(vals: (number | null)[], n: number): (number | null)[] {
@@ -54,13 +56,35 @@ export function TrendsPage() {
   const atl = series.map((s) => (s.atl != null ? round(s.atl, 1) : null));
   const tsb = series.map((_, i) => (i > 0 && series[i - 1].ctl != null && series[i - 1].atl != null ? round(series[i - 1].ctl! - series[i - 1].atl!, 1) : null));
 
+  // PMC with the planned week appended (TrainingPeaks-style projection)
+  const future = app.plan.days.filter((d) => d.date > asOf);
+  const lastCtl = ctl[ctl.length - 1];
+  const lastAtl = atl[atl.length - 1];
+  const proj = lastCtl != null && lastAtl != null ? projectLoad(lastCtl, lastAtl, future.map((d) => d.ride?.tss ?? 0)) : null;
+  const pmcLabels = [...labels, ...future.map((d) => fmtShort(d.date))];
+  const pad = (arr: (number | null)[]) => [...arr, ...future.map(() => null)];
+  const projCtl = proj ? [...ctl.map((_, i) => (i === ctl.length - 1 ? lastCtl : null)), ...proj.ctl.map((v) => round(v, 1))] : [];
+  const projAtl = proj ? [...atl.map((_, i) => (i === atl.length - 1 ? lastAtl : null)), ...proj.atl.map((v) => round(v, 1))] : [];
+  const tsbAll = proj ? [...tsb, ...proj.tsb.map((v) => round(v, 1))] : tsb;
+
   const dist = trends.distribution28;
   const hasHrv = hrv.some((v) => v != null);
   const hasRhr = rhr.some((v) => v != null);
 
   return (
     <>
-      <h1>Trends</h1>
+      <div className="row">
+        <h1>Trends</h1>
+        <span className="spacer" />
+        <StatusChip status={app.status} />
+      </div>
+      <p className="small ink2" style={{ marginTop: -8 }}>
+        <b>{app.status.label}:</b> {app.status.detail}
+      </p>
+      <div className="grid-2">
+        <LoadFocusCard focus={app.loadFocus} />
+        <ProgressionCard progression={app.progression} />
+      </div>
       {trends.notes.length > 0 && (
         <div className="card">
           <h2 style={{ marginBottom: 8 }}>What your data says</h2>
@@ -118,19 +142,34 @@ export function TrendsPage() {
           </div>
           <LineChart
             title="Fitness and fatigue"
-            labels={labels}
+            labels={pmcLabels}
             series={[
-              { name: 'Fitness (CTL)', color: 'var(--s1)', values: ctl },
-              { name: 'Fatigue (ATL)', color: 'var(--s2)', values: atl },
+              { name: 'Fitness (CTL)', color: 'var(--s1)', values: pad(ctl) },
+              { name: 'Fatigue (ATL)', color: 'var(--s2)', values: pad(atl) },
+              ...(proj
+                ? [
+                    { name: 'Planned fitness', color: 'var(--s1)', values: projCtl, opacity: 0.4 },
+                    { name: 'Planned fatigue', color: 'var(--s2)', values: projAtl, opacity: 0.4 },
+                  ]
+                : []),
             ]}
+            marker={labels.length - 1}
           />
+          <p className="tiny muted">Faded lines = where this week’s plan takes you. Vertical line = today.</p>
         </div>
         <div className="card">
           <div className="card-head">
             <h2>Form (TSB)</h2>
-            <span className="small muted">−30 to −10 productive · +5 to +25 fresh</span>
+            <span className="small muted">with intervals.icu form zones</span>
           </div>
-          <LineChart title="Form" labels={labels} series={[{ name: 'Form', color: 'var(--s1)', values: tsb }]} zeroLine />
+          <LineChart
+            title="Form"
+            labels={pmcLabels}
+            series={[{ name: 'Form', color: 'var(--s1)', values: tsbAll }]}
+            zeroLine
+            marker={labels.length - 1}
+            zones={FORM_ZONES.map((z) => ({ from: z.from, to: z.to, label: z.label, color: z.tone === 'good' ? 'var(--good)' : z.tone === 'bad' ? 'var(--critical)' : 'var(--s-neutral)' }))}
+          />
         </div>
         <div className="card">
           <div className="card-head">
@@ -212,6 +251,8 @@ export function TrendsPage() {
             <p className="muted">No zone data yet.</p>
           )}
         </div>
+        <PowerProfileCard power={app.power} />
+        <AerobicCard trends={trends} />
       </div>
     </>
   );

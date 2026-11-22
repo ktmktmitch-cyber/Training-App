@@ -18,6 +18,9 @@ export interface AthleteProfile {
   hrZones: number[]; // upper bounds in bpm
   birthYear?: number | null;
   sex?: string | null;
+  cp?: number | null; // critical power (W)
+  wPrime?: number | null; // J
+  pMax?: number | null; // W
 }
 
 export interface Activity {
@@ -39,6 +42,15 @@ export interface Activity {
   source: 'intervals' | 'strava' | 'demo';
   limited?: boolean; // intervals.icu returned a stub (e.g. Strava-sourced activity)
   stravaId?: string;
+  ssSecs?: number | null; // seconds in intervals.icu "sweet spot" band
+  decoupling?: number | null; // aerobic decoupling Pw:HR (%)
+  efficiencyFactor?: number | null; // NP / avg HR
+  rpe?: number | null; // 1..10
+  feel?: number | null; // intervals.icu 1 (strong) .. 5 (weak)
+  pairedEventId?: string | null;
+  efforts?: { reps: number; secs: number; watts: number }[] | null; // intervals.icu detected intervals
+  ftp?: number | null; // FTP at the time of the activity
+  vi?: number | null; // variability index
 }
 
 export interface Wellness {
@@ -56,6 +68,8 @@ export interface Wellness {
   mood: number | null;
   motivation: number | null;
   eftp: number | null;
+  wPrime?: number | null;
+  pMax?: number | null;
 }
 
 export type EventCategory = 'RACE_A' | 'RACE_B' | 'RACE_C' | 'WORKOUT' | 'NOTE' | 'HOLIDAY' | 'SICK' | 'INJURED' | string;
@@ -68,6 +82,8 @@ export interface CalendarEvent {
   name: string;
   type?: string;
   externalId?: string | null;
+  plannedSec?: number | null;
+  plannedTss?: number | null;
 }
 
 // ---------- User settings ----------
@@ -122,7 +138,7 @@ export interface DayConfig {
   status: DayStatus;
   maxMinutes: number | null; // null = no explicit cap
   group?: { durationMin: number; intensity: GroupIntensity; name?: string };
-  pinned?: { workoutId: string; durationMin: number };
+  pinned?: { workoutId: string; durationMin: number; level?: number };
   race?: { name: string; durationMin: number; priority: 'A' | 'B' | 'C' };
   noLift?: boolean;
 }
@@ -199,6 +215,8 @@ export interface PlannedWorkout {
   key: boolean; // counts as a key/quality session
   fixed?: 'group' | 'pinned' | 'race';
   indoorAlt?: string;
+  progression?: { zone: string; workoutLevel: number; athleteLevel: number | null; difficulty: string | null };
+  level?: number;
 }
 
 export interface StrengthExercise {
@@ -299,6 +317,7 @@ export interface Readiness {
     high: number | null; // normal range in ms (from ln space)
     cv7: number | null;
     trend: 'up' | 'down' | 'flat' | null;
+    status: 'balanced' | 'unbalanced' | 'low' | 'poor' | null; // Garmin-style HRV status
   };
   rhr: { today: number | null; avg7: number | null; baseline: number | null; sd: number | null };
   tsb: number | null;
@@ -335,6 +354,12 @@ export interface Trends {
   daysSinceHard: number | null;
   ctl: number | null;
   atl: number | null;
+  aerobic: {
+    rides: { date: ISODate; decoupling: number; ef: number | null; minutes: number }[];
+    median: number | null;
+    efChange: number | null; // % change in efficiency factor, last 4 weeks vs the 4 before
+    verdict: 'solid' | 'developing' | 'needs_work' | 'unknown';
+  };
   notes: string[];
 }
 

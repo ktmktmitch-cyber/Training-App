@@ -58,7 +58,7 @@ interface RawSport {
   max_hr: number | null;
   power_zones: number[] | null;
   hr_zones: number[] | null;
-  mmp_model?: { ftp?: number } | null;
+  mmp_model?: { ftp?: number; criticalPower?: number; wPrime?: number; pMax?: number } | null;
 }
 interface RawAthlete {
   id: string;
@@ -85,7 +85,7 @@ interface RawWellness {
   stress?: number | null;
   mood?: number | null;
   motivation?: number | null;
-  sportInfo?: { type: string; eftp?: number | null }[] | null;
+  sportInfo?: { type: string; eftp?: number | null; wPrime?: number | null; pMax?: number | null }[] | null;
 }
 interface RawActivity {
   id: string;
@@ -103,6 +103,14 @@ interface RawActivity {
   strava_id?: string | null;
   source?: string;
   _note?: string;
+  decoupling?: number | null;
+  icu_efficiency_factor?: number | null;
+  icu_rpe?: number | null;
+  feel?: number | null;
+  paired_event_id?: number | string | null;
+  interval_summary?: string[] | null;
+  icu_ftp?: number | null;
+  icu_variability_index?: number | null;
 }
 interface RawEvent {
   id: number | string;
@@ -112,10 +120,12 @@ interface RawEvent {
   name?: string | null;
   type?: string | null;
   external_id?: string | null;
+  moving_time?: number | null;
+  icu_training_load?: number | null;
 }
 
 // ---------- normalisers ----------
-export function normalizeAthlete(a: RawAthlete, latestEftp: number | null): AthleteProfile {
+export function normalizeAthlete(a: RawAthlete, latestEftp: number | null, latest?: Wellness | null): AthleteProfile {
   const ride = a.sportSettings?.find((s) => s.types?.includes('Ride')) ?? a.sportSettings?.[0];
   return {
     id: a.id,
@@ -130,6 +140,9 @@ export function normalizeAthlete(a: RawAthlete, latestEftp: number | null): Athl
     hrZones: ride?.hr_zones ?? [],
     birthYear: a.icu_date_of_birth ? Number(a.icu_date_of_birth.slice(0, 4)) : null,
     sex: a.sex ?? null,
+    cp: ride?.mmp_model?.criticalPower ?? null,
+    wPrime: latest?.wPrime ?? ride?.mmp_model?.wPrime ?? null,
+    pMax: latest?.pMax ?? ride?.mmp_model?.pMax ?? null,
   };
 }
 
@@ -149,12 +162,28 @@ export function normalizeWellness(w: RawWellness): Wellness {
     mood: w.mood ?? null,
     motivation: w.motivation ?? null,
     eftp: w.sportInfo?.find((s) => s.type === 'Ride')?.eftp ?? null,
+    wPrime: w.sportInfo?.find((s) => s.type === 'Ride')?.wPrime ?? null,
+    pMax: w.sportInfo?.find((s) => s.type === 'Ride')?.pMax ?? null,
   };
+}
+
+/** Parse intervals.icu interval summaries like "5x 3m58s 323w" (power-based only). */
+export function parseIntervalSummary(lines: string[] | null | undefined): { reps: number; secs: number; watts: number }[] | null {
+  if (!lines?.length) return null;
+  const out: { reps: number; secs: number; watts: number }[] = [];
+  for (const l of lines) {
+    const m = l.trim().match(/^(\d+)x\s+(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?\s+(\d+)w$/);
+    if (!m) continue;
+    const secs = Number(m[2] ?? 0) * 3600 + Number(m[3] ?? 0) * 60 + Number(m[4] ?? 0);
+    if (secs > 0) out.push({ reps: Number(m[1]), secs, watts: Number(m[5]) });
+  }
+  return out.length ? out : null;
 }
 
 export function normalizeActivity(a: RawActivity): Activity {
   const type = a.type ?? 'Other';
   const zones = a.icu_zone_times?.filter((z) => /^Z\d$/.test(z.id)).sort((x, y) => x.id.localeCompare(y.id));
+  const ss = a.icu_zone_times?.find((z) => z.id === 'SS');
   return {
     id: String(a.id),
     date: (a.start_date_local ?? '').slice(0, 10),
@@ -173,6 +202,15 @@ export function normalizeActivity(a: RawActivity): Activity {
     source: 'intervals',
     limited: Boolean(a._note) || (a.source === 'STRAVA' && !a.moving_time),
     stravaId: a.strava_id ? String(a.strava_id) : undefined,
+    ssSecs: ss?.secs ?? null,
+    decoupling: a.decoupling ?? null,
+    efficiencyFactor: a.icu_efficiency_factor ?? null,
+    rpe: a.icu_rpe ?? null,
+    feel: a.feel ?? null,
+    pairedEventId: a.paired_event_id != null ? String(a.paired_event_id) : null,
+    efforts: parseIntervalSummary(a.interval_summary),
+    ftp: a.icu_ftp ?? null,
+    vi: a.icu_variability_index ?? null,
   };
 }
 
@@ -185,6 +223,8 @@ export function normalizeEvent(e: RawEvent): CalendarEvent {
     name: e.name ?? e.category,
     type: e.type ?? undefined,
     externalId: e.external_id ?? null,
+    plannedSec: e.moving_time ?? null,
+    plannedTss: e.icu_training_load ?? null,
   };
 }
 
@@ -197,9 +237,9 @@ export async function fetchAll(conn: Connection, oldest: ISODate, newest: ISODat
     call<RawEvent[]>(conn, `/athlete/${aid(conn)}/events?oldest=${oldest}&newest=${futureEnd}`),
   ]);
   const wellness = (wellnessRaw ?? []).map(normalizeWellness).sort((a, b) => a.date.localeCompare(b.date));
-  const latestEftp = [...wellness].reverse().find((w) => w.eftp)?.eftp ?? null;
+  const latestW = [...wellness].reverse().find((w) => w.eftp) ?? null;
   return {
-    profile: normalizeAthlete(athlete, latestEftp),
+    profile: normalizeAthlete(athlete, latestW?.eftp ?? null, latestW),
     wellness,
     activities: (activitiesRaw ?? []).map(normalizeActivity).filter((a) => a.date),
     events: (eventsRaw ?? []).map(normalizeEvent),
