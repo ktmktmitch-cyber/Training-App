@@ -1,0 +1,77 @@
+import type { CheckIn, Readiness } from '../engine/types';
+import { ScoreRing } from './charts';
+import { Seg, STATUS, StatusIcon } from './ui';
+
+const FLAG_STATUS = { good: 'green', info: 'unknown', warn: 'amber', bad: 'red' } as const;
+
+export function ReadinessCard({ r, asOf, checkIn, onCheckIn }: { r: Readiness; asOf: string; checkIn: CheckIn | null; onCheckIn: (c: CheckIn | null) => void }) {
+  const s = STATUS[r.status];
+  const sign = (v: number) => (v > 0 ? `+${Math.round(v)}` : `${Math.round(v)}`);
+  return (
+    <div className="card">
+      <div className="readiness">
+        <ScoreRing score={r.score} color={s.color} label="readiness" />
+        <div className="stack">
+          <div className="row">
+            <span className="status-pill">
+              <StatusIcon status={r.status} />
+              {s.label}
+            </span>
+            <span className="small ink2">{r.summary}</span>
+          </div>
+          <div className="metrics">
+            <div className="metric">
+              <div className="label">HRV · 7-day</div>
+              <div className="value num">{r.hrv.avg7 != null ? `${r.hrv.avg7} ms` : '—'}</div>
+              <div className="sub num">
+                {r.hrv.low != null ? `normal ${r.hrv.low}–${r.hrv.high}` : 'no data'}
+                {r.hrv.trend ? ` · ${r.hrv.trend === 'up' ? '↑' : r.hrv.trend === 'down' ? '↓' : '→'}` : ''}
+              </div>
+            </div>
+            <div className="metric">
+              <div className="label">Resting HR · 7-day</div>
+              <div className="value num">{r.rhr.avg7 != null ? `${Math.round(r.rhr.avg7)} bpm` : '—'}</div>
+              <div className="sub num">{r.rhr.baseline != null ? `baseline ${Math.round(r.rhr.baseline)}` : 'no data'}</div>
+            </div>
+            <div className="metric">
+              <div className="label">Form (TSB)</div>
+              <div className="value num">{r.tsb != null ? sign(r.tsb) : '—'}</div>
+              <div className="sub num">{r.ctl != null ? `fitness ${Math.round(r.ctl)} · fatigue ${Math.round(r.atl ?? 0)}` : 'no data'}</div>
+            </div>
+            <div className="metric">
+              <div className="label">Sleep · 3-night</div>
+              <div className="value num">{r.sleepAvg3h != null ? `${r.sleepAvg3h} h` : '—'}</div>
+              <div className="sub num">{r.rampRate != null ? `CTL ramp ${r.rampRate >= 0 ? '+' : ''}${r.rampRate}/wk` : ''}</div>
+            </div>
+          </div>
+          <div className="flags">
+            {r.flags.map((f) => (
+              <div className="flag" key={f.id}>
+                <StatusIcon status={FLAG_STATUS[f.level]} />
+                <div>
+                  <b>{f.title}.</b> <span className="ink2">{f.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="row" style={{ marginTop: 4 }}>
+            <span className="small" style={{ fontWeight: 600 }}>
+              How do you feel today?
+            </span>
+            <Seg<string>
+              value={checkIn?.feel ?? ''}
+              onChange={(v) => onCheckIn(v === checkIn?.feel ? null : { date: asOf, feel: v as CheckIn['feel'] })}
+              options={[
+                { value: 'great', label: 'Great' },
+                { value: 'normal', label: 'Normal' },
+                { value: 'tired', label: 'Tired' },
+                { value: 'sore', label: 'Sore' },
+                { value: 'sick', label: 'Sick' },
+              ]}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
