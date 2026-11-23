@@ -5,6 +5,25 @@ export type ISODate = string; // YYYY-MM-DD (athlete-local calendar date)
 
 // ---------- Data coming in ----------
 
+/** One best effort on intervals.icu's power curve, with the ride it came from. */
+export interface CurvePoint {
+  secs: number;
+  watts: number;
+  activityId: string | null;
+  activityName: string | null;
+  date: ISODate | null;
+}
+
+/** intervals.icu mean-maximal power curve for a window (e.g. last 90 days). */
+export interface PowerCurve {
+  id: string; // '42d' | '90d' | '1y'
+  label: string;
+  start: ISODate | null;
+  end: ISODate | null;
+  weightKg: number | null;
+  points: CurvePoint[];
+}
+
 export interface AthleteProfile {
   id: string;
   name: string;

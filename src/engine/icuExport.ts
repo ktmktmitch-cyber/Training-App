@@ -1,7 +1,18 @@
 // Convert planned workouts into intervals.icu workout-builder text so they appear as
 // structured workouts on the intervals.icu calendar (and sync on to Garmin/Zwift/Wahoo).
 // Syntax: section headers ("Main set 5x"), steps "- 4m 110-118% 95rpm", "ramp" for ramps.
+import { hrBand, hrSteerable, wattBand, type ExportTargets } from './targets';
 import type { AthleteProfile, Block, PlannedDay, PlannedWorkout, Step, StrengthSession, TargetMode } from './types';
+
+/**
+ * Absolute targets for an export: watts from the chosen FTP, or heart rate from the chosen
+ * threshold HR. intervals.icu stores HR as % of the LTHR in its own settings, so bpm are
+ * converted against `icuLthr` (falls back to the chosen LTHR) to land on the right numbers.
+ */
+export interface AbsTargets {
+  targets: ExportTargets;
+  icuLthr?: number | null;
+}
 
 function fmtDur(sec: number): string {
   const s = Math.round(sec);
@@ -24,10 +35,22 @@ function hrZoneFor(pct: number): string {
   return 'Z5 HR';
 }
 
-function stepLine(st: Step, mode: TargetMode): string {
+function stepLine(st: Step, mode: TargetMode, abs?: AbsTargets): string {
   const dur = fmtDur(st.durationSec);
   let target: string;
-  if (mode === 'hr' && st.durationSec >= 120) {
+  const t = abs?.targets;
+  if (t?.mode === 'hr' && t.lthr && hrSteerable(st)) {
+    const ref = abs?.icuLthr || t.lthr;
+    const [lo, hi] = hrBand(st, t.lthr);
+    target = `${Math.round((lo / ref) * 100)}-${Math.round((hi / ref) * 100)}% LTHR`;
+  } else if (t?.mode === 'power' || (t?.mode === 'hr' && !hrSteerable(st))) {
+    const ftp = t.ftp;
+    if (st.ramp) target = `ramp ${Math.round((st.low * ftp) / 100)}-${Math.round((st.high * ftp) / 100)}w`;
+    else {
+      const [lo, hi] = wattBand(st, ftp);
+      target = lo === hi ? `${lo}w` : `${lo}-${hi}w`;
+    }
+  } else if (mode === 'hr' && st.durationSec >= 120) {
     target = hrZoneFor((st.low + st.high) / 2);
   } else if (st.ramp) {
     target = `ramp ${Math.round(st.low)}-${Math.round(st.high)}%`;
@@ -41,22 +64,24 @@ function stepLine(st: Step, mode: TargetMode): string {
   return `- ${label}${dur} ${target}${cad}`;
 }
 
-export function blocksToIcuText(blocks: Block[], mode: TargetMode): string {
+export function blocksToIcuText(blocks: Block[], mode: TargetMode, abs?: AbsTargets): string {
   const out: string[] = [];
   blocks.forEach((b, i) => {
     const header = b.reps > 1 ? `${b.name ?? 'Set'} ${b.reps}x` : b.name ?? (i === 0 ? 'Warmup' : 'Recover');
     out.push(header);
-    for (const st of b.steps) out.push(stepLine(st, mode));
+    for (const st of b.steps) out.push(stepLine(st, mode, abs));
     out.push('');
   });
   return out.join('\n').trim();
 }
 
-export function workoutDescription(w: PlannedWorkout, mode: TargetMode): string {
+export function workoutDescription(w: PlannedWorkout, mode: TargetMode, abs?: AbsTargets): string {
   const parts = [w.purpose];
-  if (w.blocks.length) parts.push('', blocksToIcuText(w.blocks, mode));
+  const t = abs?.targets;
+  if (t) parts.push('', t.mode === 'hr' ? `Targets: heart rate, threshold HR ${t.lthr} bpm.` : `Targets: power, FTP ${t.ftp} W.`);
+  if (w.blocks.length) parts.push('', blocksToIcuText(w.blocks, t ? t.mode : mode, abs));
   if (w.fueling) parts.push('', `Fueling: ${w.fueling}`);
-  if (mode === 'hr') parts.push('', 'Short efforts (<2 min) keep power targets — ride them by feel (RPE 9) if you have no power meter.');
+  if ((t ? t.mode : mode) === 'hr') parts.push('', 'Short efforts (<2 min) keep power targets — ride them by feel (RPE 9) if you have no power meter.');
   return parts.join('\n');
 }
 

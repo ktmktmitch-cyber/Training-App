@@ -3,7 +3,8 @@
 //    let intervals.icu sync it to Garmin Connect automatically.
 //  * MRC (% FTP over time) — widely supported by indoor-trainer software.
 // Zwift .zwo lives in zwo.ts.
-import type { Block, PlannedWorkout } from './types';
+import { hrBand, hrSteerable, type ExportTargets } from './targets';
+import type { Block, PlannedWorkout, Step } from './types';
 
 // ---------- FIT ----------
 const CRC_TABLE = [0x0000, 0xcc01, 0xd801, 0x1400, 0xf001, 0x3c00, 0x2800, 0xe401, 0xa001, 0x6c00, 0x7800, 0xb401, 0x5000, 0x9c01, 0x8801, 0x4400];
@@ -83,6 +84,7 @@ interface FitStep {
   intensity?: number; // 0 active, 1 rest, 2 warmup, 3 cooldown, 4 recovery
   repeatFrom?: number;
   repeatCount?: number;
+  step?: Step;
 }
 
 function intensityOf(blockName: string | undefined, low: number, high: number, isFirst: boolean, isLast: boolean): number {
@@ -106,6 +108,7 @@ function toFitSteps(blocks: Block[]): FitStep[] {
         low: Math.round(st.low),
         high: Math.round(Math.max(st.low, st.high)),
         intensity: intensityOf(b.name, st.low, st.high, bi === 0 && si === 0, bi === blocks.length - 1 && si === b.steps.length - 1),
+        step: st,
       });
     });
     if (b.reps > 1) steps.push({ name: '', kind: 'repeat', repeatFrom: start, repeatCount: b.reps });
@@ -113,8 +116,12 @@ function toFitSteps(blocks: Block[]): FitStep[] {
   return steps;
 }
 
-/** Encode a planned workout as a FIT workout file (power targets in % FTP). */
-export function workoutToFit(w: PlannedWorkout, created = new Date()): Uint8Array {
+/**
+ * Encode a planned workout as a FIT workout file. Without `targets`, power targets are % FTP
+ * (the device's own FTP). With targets: absolute watts from the chosen FTP, or heart-rate
+ * ranges in bpm from the chosen threshold HR (efforts under 2 min are open, ridden by feel).
+ */
+export function workoutToFit(w: PlannedWorkout, targets?: ExportTargets, created = new Date()): Uint8Array {
   const body = new Writer();
   const fileId: FieldDef[] = [
     [0, 1, ENUM], // type
@@ -150,8 +157,29 @@ export function workoutToFit(w: PlannedWorkout, created = new Date()): Uint8Arra
   body.definition(2, 27, step);
   steps.forEach((st, i) => {
     if (st.kind === 'repeat') body.data(2, step, [i, '', 6, st.repeatFrom!, 2, st.repeatCount!, 0, 0, 0]);
-    // power target: values 0-1000 are % FTP on Garmin devices
-    else body.data(2, step, [i, st.name, 0, Math.round(st.seconds! * 1000), 4, 0, st.low!, st.high!, st.intensity!]);
+    else {
+      // FIT target values: power 0-1000 = % FTP, >1000 = watts + 1000; heart rate >100 = bpm + 100
+      let type = 4;
+      let lo = st.low!;
+      let hi = st.high!;
+      let name = st.name;
+      if (targets?.mode === 'hr' && targets.lthr) {
+        if (hrSteerable(st.step!)) {
+          const [a, b] = hrBand(st.step!, targets.lthr);
+          type = 1;
+          lo = a + 100;
+          hi = b + 100;
+        } else {
+          type = 2; // open — HR can't follow a short effort
+          lo = hi = 0;
+          name = (name ? `${name} ` : '').concat(st.low! >= 100 ? 'HARD RPE9' : 'easy').slice(0, 15);
+        }
+      } else if (targets?.mode === 'power' && targets.ftp > 0) {
+        lo = Math.round((st.low! * targets.ftp) / 100) + 1000;
+        hi = Math.round((st.high! * targets.ftp) / 100) + 1000;
+      }
+      body.data(2, step, [i, name, 0, Math.round(st.seconds! * 1000), type, 0, lo, hi, st.intensity!]);
+    }
   });
 
   const header = new Writer();
