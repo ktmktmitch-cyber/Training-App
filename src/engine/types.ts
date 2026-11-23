@@ -1,3 +1,4 @@
+import type { MobilityArea, MobilityFrequency, MobilitySession } from './mobility';
 // Shared domain types for the training engine. Everything here is plain data so the
 // engine stays pure and unit-testable (no React, no fetch).
 
@@ -157,6 +158,15 @@ export interface StrengthSettings {
   placement: LiftPlacement;
   followPhaseCaps: boolean; // let the planner cap frequency in peak/taper
   includeMobility: boolean;
+  mobility?: MobilityPrefs;
+}
+
+export interface MobilityPrefs {
+  frequency: MobilityFrequency;
+  minutes: number; // rest-day session length; after-ride sessions are shorter
+  focus: MobilityArea[]; // tight spots to emphasise
+  roller: boolean;
+  band: boolean;
 }
 
 export type DayStatus = 'available' | 'off' | 'group' | 'pinned' | 'race';
@@ -275,7 +285,7 @@ export interface PlannedDay {
   weekType: WeekType;
   ride: PlannedWorkout | null;
   strength: StrengthSession | null;
-  mobility?: string | null;
+  mobility?: MobilitySession | null;
   notes: string[];
   status: DayStatus;
 }

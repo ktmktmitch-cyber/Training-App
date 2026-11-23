@@ -283,7 +283,7 @@ describe('week planner', () => {
     const evs = plan.days.flatMap((d) => dayToIcuEvents(d, baseInput().profile, 'power'));
     expect(evs.length).toBeGreaterThan(3);
     for (const e of evs) {
-      expect(e.external_id).toMatch(/^trainingapp-\d{4}-\d{2}-\d{2}-(ride|strength)$/);
+      expect(e.external_id).toMatch(/^trainingapp-\d{4}-\d{2}-\d{2}-(ride|strength|mobility)$/);
       expect(e.start_date_local).toMatch(/T00:00:00$/);
     }
   });

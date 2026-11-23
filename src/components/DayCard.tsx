@@ -6,6 +6,7 @@ import { DIFFICULTY_LABEL, type Difficulty, type Progression } from '../engine/p
 import { WORKOUTS } from '../engine/workouts';
 import { Skyline } from './charts';
 import { ExportBar } from './ExportBar';
+import { MobilityBlock } from './MobilityCard';
 import { DifficultyChip } from './insights';
 import { CATEGORY_LABEL, hrFor, IntensityChip, watts } from './ui';
 
@@ -109,7 +110,7 @@ export function DayCard(props: {
             {day.strength && <span className="chip">🏋 {day.strength.title}</span>}
             {r?.fixed === 'group' && <span className="chip">Your group ride</span>}
             {r?.fixed === 'pinned' && <span className="chip">Your pick</span>}
-            {!r && day.mobility && <span className="chip">Mobility</span>}
+            {day.mobility && <span className="chip">Mobility {day.mobility.minutes}′</span>}
           </div>
           {r && r.blocks.length > 0 && <Skyline blocks={r.blocks} />}
         </div>
@@ -204,7 +205,7 @@ export function DayCard(props: {
               </ul>
             </div>
           )}
-          {day.mobility && <p className="small ink2">{day.mobility}</p>}
+          {day.mobility && <MobilityBlock session={day.mobility} />}
 
           <div className="divider" />
           {r && (() => {

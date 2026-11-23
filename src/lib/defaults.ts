@@ -23,6 +23,7 @@ export const DEFAULT_STRENGTH: StrengthSettings = {
   placement: 'hard_days',
   followPhaseCaps: true,
   includeMobility: true,
+  mobility: { frequency: 'rest_days', minutes: 10, focus: [], roller: false, band: false },
 };
 
 export const DEFAULT_PREFS: PlannerPrefs = {

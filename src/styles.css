@@ -1375,3 +1375,7 @@ tr.me td {
 tr.me .sticky-col {
   box-shadow: inset 3px 0 0 var(--accent);
 }
+
+/* Mobility list */
+.mob-list { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; }
+.mob-list li::marker { color: var(--muted); font-size: 0.85em; }

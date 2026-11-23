@@ -132,9 +132,20 @@ export function dayToIcuEvents(day: PlannedDay, _profile: AthleteProfile, mode: 
       external_id: `${EXTERNAL_PREFIX}-${day.date}-strength`,
     });
   }
+  if (day.mobility) {
+    out.push({
+      category: 'WORKOUT',
+      start_date_local: start,
+      type: 'Workout',
+      name: `Mobility — ${day.mobility.minutes} min`,
+      description: [day.mobility.title, '', ...day.mobility.moves.map((m) => `• ${m.name}: ${m.dose} — ${m.how}`), '', day.mobility.note].join('\n'),
+      moving_time: day.mobility.minutes * 60,
+      external_id: `${EXTERNAL_PREFIX}-${day.date}-mobility`,
+    });
+  }
   return out;
 }
 
 export function allExternalIdsFor(date: string): string[] {
-  return [`${EXTERNAL_PREFIX}-${date}-ride`, `${EXTERNAL_PREFIX}-${date}-strength`];
+  return [`${EXTERNAL_PREFIX}-${date}-ride`, `${EXTERNAL_PREFIX}-${date}-strength`, `${EXTERNAL_PREFIX}-${date}-mobility`];
 }
