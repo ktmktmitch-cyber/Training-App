@@ -5,6 +5,7 @@ import type { EventType, GoalSettings, IntensityModel, LoadPattern, Phase, Perio
 import { LineChart } from '../components/charts';
 import { Field, Seg } from '../components/ui';
 import { toggleRestWeek } from '../lib/restWeeks';
+import { RacesCard } from '../components/RacesCard';
 import { useApp } from '../lib/store';
 
 const MODELS: { id: PeriodizationModel; name: string; desc: string }[] = [
@@ -60,6 +61,7 @@ export function SeasonPage() {
   return (
     <>
       <h1>Season plan</h1>
+      <RacesCard />
       <div className="card stack-lg">
         <h2>Goal</h2>
         <div className="grid-3">

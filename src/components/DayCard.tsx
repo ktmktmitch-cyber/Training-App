@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { dowShort, fmtMinutes, fromISO } from '../engine/dates';
-import type { AthleteProfile, Block, PlannedDay, TargetMode } from '../engine/types';
+import type { AthleteProfile, Block, GroupIntensity, PlannedDay, TargetMode } from '../engine/types';
 import { workoutAlternatives } from '../engine/planner';
 import { DIFFICULTY_LABEL, type Difficulty, type Progression } from '../engine/progression';
 import { WORKOUTS } from '../engine/workouts';
@@ -8,7 +8,7 @@ import { Skyline } from './charts';
 import { ExportBar } from './ExportBar';
 import { MobilityBlock } from './MobilityCard';
 import { DifficultyChip } from './insights';
-import { CATEGORY_LABEL, hrFor, IntensityChip, watts } from './ui';
+import { CATEGORY_LABEL, hrFor, IntensityChip, Seg, watts } from './ui';
 
 function fmtStep(sec: number) {
   if (sec < 60) return `${sec}s`;
@@ -84,6 +84,8 @@ export function DayCard(props: {
   onSwap: (templateId: string, durationMin: number, level?: number) => void;
   onRest: () => void;
   onReset: () => void;
+  onGroup: (g: { name?: string; durationMin: number; intensity: GroupIntensity }) => void;
+  groupCfg?: { name?: string; durationMin: number; intensity: GroupIntensity } | null;
   onToast?: (msg: string) => void;
 }) {
   const { day, ftp, profile, mode, isToday, customized } = props;
@@ -91,6 +93,7 @@ export function DayCard(props: {
   const r = day.ride;
   const [swapId, setSwapId] = useState(r?.templateId && !['group', 'race'].includes(r.templateId) ? r.templateId : 'endurance');
   const [swapDur, setSwapDur] = useState(r?.durationMin ?? 60);
+  const [grp, setGrp] = useState(() => props.groupCfg ?? { name: '', durationMin: 120, intensity: 'hard' as GroupIntensity });
   const off = day.status === 'off';
   const title = r ? r.name : off ? 'Unavailable' : 'Rest day';
   const d = fromISO(day.date);
@@ -208,12 +211,19 @@ export function DayCard(props: {
           {day.mobility && <MobilityBlock session={day.mobility} />}
 
           <div className="divider" />
-          {r && (() => {
-            const alts = workoutAlternatives(r, props.progression, profile?.weightKg ?? null);
-            return alts.length ? (
+          {(r || customized) && (() => {
+            const alts = r ? workoutAlternatives(r, props.progression, profile?.weightKg ?? null) : [];
+            return alts.length || customized ? (
               <div className="stack">
                 <h3>Swap</h3>
                 <div className="alts">
+                  {customized && (
+                    <button className="alt alt-reset" onClick={props.onReset}>
+                      <b>↺ Recommended</b>
+                      <span>Back to the plan’s pick</span>
+                      <span className="muted">Undo your changes to this day</span>
+                    </button>
+                  )}
                   {alts.map((a) => (
                     <button key={a.label} className="alt" onClick={() => props.onSwap(a.templateId, a.durationMin, a.level)}>
                       <b>{a.label}</b>
@@ -230,6 +240,43 @@ export function DayCard(props: {
               </div>
             ) : null;
           })()}
+          <details className="more" open={day.status === 'group' || undefined}>
+            <summary>{day.status === 'group' ? 'Group ride — edit' : 'Group ride this day…'}</summary>
+            <div className="setup-extra" style={{ marginTop: 8 }}>
+              <label className="field" style={{ flex: '1 1 160px' }}>
+                <span>Name (optional)</span>
+                <input className="input" placeholder="Saturday shop ride" value={grp.name ?? ''} onChange={(e) => setGrp({ ...grp, name: e.target.value })} />
+              </label>
+              <label className="field" style={{ flex: '0 1 110px' }}>
+                <span>Length</span>
+                <select className="select" value={grp.durationMin} onChange={(e) => setGrp({ ...grp, durationMin: Number(e.target.value) })} aria-label="Group ride length">
+                  {[45, 60, 75, 90, 105, 120, 150, 180, 210, 240, 300, 360].map((m) => (
+                    <option key={m} value={m}>
+                      {fmtMinutes(m)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="field">
+                <span>Intensity</span>
+                <Seg<GroupIntensity>
+                  value={grp.intensity}
+                  onChange={(v) => setGrp({ ...grp, intensity: v })}
+                  ariaLabel="Group ride intensity"
+                  options={[
+                    { value: 'social', label: 'Social' },
+                    { value: 'tempo', label: 'Steady' },
+                    { value: 'hard', label: 'Hard' },
+                    { value: 'race', label: 'Race pace' },
+                  ]}
+                />
+              </div>
+              <button className="btn sm primary" onClick={() => props.onGroup({ ...grp, name: grp.name?.trim() || undefined })}>
+                {day.status === 'group' ? 'Update group ride' : 'Add group ride'}
+              </button>
+            </div>
+            <p className="tiny muted" style={{ marginTop: 6 }}>The rest of the week re-plans around it — a hard group ride counts as a quality day.</p>
+          </details>
           <details className="more">
             <summary>Pick any workout…</summary>
           <div className="setup-extra" style={{ marginTop: 8 }}>
@@ -263,11 +310,6 @@ export function DayCard(props: {
             <button className="btn sm ghost" onClick={props.onRest}>
               Can’t train
             </button>
-            {customized && (
-              <button className="btn sm ghost" onClick={props.onReset}>
-                Reset day
-              </button>
-            )}
           </div>
           {r && r.blocks.length > 0 && <ExportBar workout={r} date={day.date} onDone={props.onToast} />}
         </div>

@@ -187,7 +187,8 @@ export function WeekPage() {
             profile={app.profile}
             mode={settings.prefs.targetMode}
             isToday={d.date === app.asOf}
-            customized={!!week.days[d.date] && week.days[d.date].status !== 'available'}
+            customized={(!!week.days[d.date] && week.days[d.date].status !== 'available') || !!app.scheduled[d.date]}
+            groupCfg={week.days[d.date]?.group ?? null}
             progression={app.progression}
             onToast={showToast}
             onSwap={(id, dur, level) => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
@@ -195,6 +196,12 @@ export function WeekPage() {
             onReset={() => {
               setDay(d.date, null);
               app.schedule(d.date, null);
+              showToast('Back to the recommended workout.');
+            }}
+            onGroup={(g) => {
+              app.schedule(d.date, null);
+              setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'group', group: g });
+              showToast(`Group ride added — the rest of the week re-planned around it.`);
             }}
           />
         ))}

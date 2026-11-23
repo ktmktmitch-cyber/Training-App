@@ -1379,3 +1379,8 @@ tr.me .sticky-col {
 /* Mobility list */
 .mob-list { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; }
 .mob-list li::marker { color: var(--muted); font-size: 0.85em; }
+
+/* Race priority chips (identity by letter; color is secondary) */
+.chip.pri-A { background: var(--accent); color: var(--on-accent, #fff); font-weight: 700; }
+.chip.pri-B { font-weight: 700; }
+.chip.pri-C { font-weight: 600; opacity: 0.85; }

@@ -4,6 +4,7 @@
 import { addDays, diffDays, fmtShort, mondayOf } from './dates';
 import type {
   CalendarEvent,
+  PlannedRace,
   EventType,
   GoalSettings,
   ISODate,
@@ -245,13 +246,27 @@ function strengthPhaseFor(phase: Phase, weekType: WeekType, weekInPhase: number,
   }
 }
 
+export const APP_RACE_PREFIX = 'race-';
+export const isAppRace = (e: CalendarEvent) => e.id.startsWith(APP_RACE_PREFIX);
+
+/** Races you added in the app, as calendar events (skipping any already on your intervals.icu calendar that day). */
+export function withAppRaces(events: CalendarEvent[], races: PlannedRace[] = []): CalendarEvent[] {
+  const extra = races
+    .filter((r) => !events.some((e) => e.date === r.date && e.category.startsWith('RACE_')))
+    .map<CalendarEvent>((r) => ({ id: `${APP_RACE_PREFIX}${r.id}`, date: r.date, category: `RACE_${r.priority}`, name: r.name, plannedSec: r.durationMin * 60 }));
+  return extra.length ? [...events, ...extra] : events;
+}
+
 export function resolveGoalDate(goal: GoalSettings, events: CalendarEvent[], asOf: ISODate): { date: ISODate | null; name: string } {
+  if (goal.eventDate && goal.eventType !== 'fitness' && diffDays(goal.eventDate, asOf) >= 0) return { date: goal.eventDate, name: goal.eventName || 'Goal event' };
+  const nextA = (pred: (e: CalendarEvent) => boolean) =>
+    events.filter((e) => e.category === 'RACE_A' && diffDays(e.date, asOf) >= 0 && pred(e)).sort((x, y) => x.date.localeCompare(y.date))[0];
+  // An A race you add in the app always becomes the season goal (build → peak → taper)
+  const mine = nextA((e) => isAppRace(e));
+  if (mine) return { date: mine.date, name: mine.name || 'A race' };
   if (goal.eventType === 'fitness') return { date: null, name: goal.eventName || 'General fitness' };
-  if (goal.eventDate && diffDays(goal.eventDate, asOf) >= 0) return { date: goal.eventDate, name: goal.eventName || 'Goal event' };
   if (goal.useCalendarRaces) {
-    const a = events
-      .filter((e) => e.category === 'RACE_A' && diffDays(e.date, asOf) >= 0)
-      .sort((x, y) => x.date.localeCompare(y.date))[0];
+    const a = nextA(() => true);
     if (a) return { date: a.date, name: a.name || 'A race' };
   }
   return { date: null, name: goal.eventName || 'General fitness' };
@@ -284,7 +299,12 @@ export function buildMacroPlan(goal: GoalSettings, events: CalendarEvent[], asOf
     if (diffDays(raceMonday, start) < 0) start = currentMonday;
     if (diffDays(raceMonday, start) < 0) start = raceMonday;
     const n = Math.floor(diffDays(raceMonday, start) / 7) + 1;
-    taperDays = taperDaysFor(goal.eventType, goal.eventDurationHours);
+    // A race added in the app while the goal type is "general fitness": taper like a road race of that length
+    const goalRace = events.find((e) => e.date === goalDate && isAppRace(e) && e.category === 'RACE_A');
+    taperDays =
+      goal.eventType === 'fitness' && goalRace
+        ? taperDaysFor('road_race', (goalRace.plannedSec ?? 7200) / 3600)
+        : taperDaysFor(goal.eventType, goal.eventDurationHours);
     const raceOffset = (diffDays(goalDate, raceMonday) + 7) % 7;
     const taperWeeks = n >= 2 && taperDays - raceOffset > 2 ? 1 : 0;
     segs = allocate(goal, n, taperWeeks);

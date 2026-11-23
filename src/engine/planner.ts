@@ -85,7 +85,7 @@ export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: Cale
   const race = evs.find((e) => ['RACE_A', 'RACE_B', 'RACE_C'].includes(e.category));
   if (race) {
     const priority = race.category === 'RACE_A' ? 'A' : race.category === 'RACE_B' ? 'B' : 'C';
-    return { ...base, status: 'race', race: { name: race.name, durationMin: 120, priority } };
+    return { ...base, status: 'race', race: { name: race.name, durationMin: race.plannedSec ? Math.round(race.plannedSec / 60) : 120, priority } };
   }
   if (goalDate === date) return { ...base, status: 'race', race: { name: 'Goal event', durationMin: 180, priority: 'A' } };
   if (evs.some((e) => ['SICK', 'INJURED', 'HOLIDAY'].includes(e.category))) return { ...base, status: 'off' };

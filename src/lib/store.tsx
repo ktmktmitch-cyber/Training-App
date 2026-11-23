@@ -11,7 +11,7 @@ import { estimateVo2, type Vo2Estimate } from '../engine/vo2max';
 import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
 import { trainingStatus, type TrainingStatus } from '../engine/status';
-import { buildMacroPlan, macroWeekFor } from '../engine/periodization';
+import { buildMacroPlan, macroWeekFor, withAppRaces } from '../engine/periodization';
 import { planWeek } from '../engine/planner';
 import { targetsLabel, type ExportTargets } from '../engine/targets';
 import { assessReadiness } from '../engine/readiness';
@@ -422,7 +422,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [profile, ftp],
   );
 
-  const macro = useMemo(() => buildMacroPlan(settings.goal, data.events, asOf), [settings.goal, data.events, asOf]);
+  const events = useMemo(() => withAppRaces(data.events, settings.goal.races), [data.events, settings.goal.races]);
+  const macro = useMemo(() => buildMacroPlan(settings.goal, events, asOf), [settings.goal, events, asOf]);
   const readiness = useMemo(
     () => assessReadiness(data.wellness, asOf, { checkIn: effectiveCheckIn, model: settings.goal.model, effects }),
     [data.wellness, asOf, effectiveCheckIn, settings.goal.model, effects],
@@ -507,13 +508,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           powerZones: [55, 75, 90, 105, 120, 150, 999],
           hrZones: [],
         },
-        events: data.events,
+        events,
         progression,
         loadFocus,
         carryOver,
         limiter,
       }),
-    [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, data.events, progression, loadFocus, carryOver, limiter],
+    [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, events, progression, loadFocus, carryOver, limiter],
   );
 
   // Remember what was planned (today onward) so compliance works even without pushing to intervals.icu

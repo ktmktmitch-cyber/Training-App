@@ -145,6 +145,17 @@ export interface GoalSettings {
   planStart: ISODate | null; // null = from this week
   useCalendarRaces: boolean; // read RACE_A/B/C from intervals.icu
   restWeeks?: ISODate[]; // Mondays of weeks you chose to make rest weeks
+  races?: PlannedRace[]; // races you added in the app
+}
+
+export type RacePriority = 'A' | 'B' | 'C';
+
+export interface PlannedRace {
+  id: string;
+  name: string;
+  date: ISODate;
+  priority: RacePriority;
+  durationMin: number;
 }
 
 export type Equipment = 'gym' | 'barbell' | 'dumbbell' | 'bodyweight';
