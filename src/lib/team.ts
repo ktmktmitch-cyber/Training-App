@@ -6,7 +6,8 @@ import { fetchAthleteData } from './intervals';
 import { load, save } from './storage';
 import { useApp } from './store';
 
-/** team.json published by the team-dashboard repository's GitHub Action. */
+/** team.json published by the team-dashboard repository's GitHub Action. Every user of
+ * the app reads this same file, so the Team tab shows the same standings for everyone. */
 export const DEFAULT_TEAM_URL = 'https://raw.githubusercontent.com/ktmktmitch-cyber/team-dashboard/main/data/team.json';
 
 const K_TEAM = 'ta.team.v1';
@@ -70,7 +71,7 @@ export interface TeamState {
 export function useTeam(): TeamState {
   const app = useApp();
   const demo = app.settings.demo;
-  const url = app.settings.teamUrl || DEFAULT_TEAM_URL;
+  const url = DEFAULT_TEAM_URL;
   const [team, setTeam] = useState<TeamData | null>(() => (demo ? null : load<TeamData | null>(K_TEAM, null)));
   const [deep, setDeep] = useState<Record<string, DeepRider>>(() => (demo ? {} : load<Record<string, DeepRider>>(K_DEEP, {})));
   const [loading, setLoading] = useState(false);
@@ -129,9 +130,14 @@ export function useTeam(): TeamState {
       }
     };
     await Promise.all([worker(), worker()]);
+    setDeepProgress(null);
+    const fresh = ids.map((id) => out[id]);
+    if (fresh.length && fresh.every((d) => d.error)) {
+      setError('Rider details are coach-only — they need the coach’s intervals.icu key. The standings above are the same for everyone.');
+      return;
+    }
     setDeep(out);
     save(K_DEEP, out);
-    setDeepProgress(null);
   }, [current, demo, app, deep]);
 
   const metrics = useMemo(() => {

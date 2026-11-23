@@ -1,9 +1,10 @@
 import { addDays, diffDays, fmtShort, mondayOf } from '../engine/dates';
-import { EVENT_LABELS, PHASE_LABELS, taperDaysFor } from '../engine/periodization';
+import { canChooseRest, EVENT_LABELS, PHASE_LABELS, taperDaysFor } from '../engine/periodization';
 import { projectSeason } from '../engine/projection';
 import type { EventType, GoalSettings, IntensityModel, LoadPattern, Phase, PeriodizationModel } from '../engine/types';
 import { LineChart } from '../components/charts';
 import { Field, Seg } from '../components/ui';
+import { toggleRestWeek } from '../lib/restWeeks';
 import { useApp } from '../lib/store';
 
 const MODELS: { id: PeriodizationModel; name: string; desc: string }[] = [
@@ -222,7 +223,16 @@ export function SeasonPage() {
                       {PHASE_LABELS[w.phase]} {w.weekInPhase}/{w.phaseWeeks}
                     </span>
                   </td>
-                  <td>{w.weekType === 'hit_block' ? 'HIT block' : w.weekType}</td>
+                  <td>
+                    <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                      {w.userRest ? 'rest (yours)' : w.weekType === 'hit_block' ? 'HIT block' : w.weekType}
+                      {canChooseRest(w) && (
+                        <button className="btn sm ghost" onClick={() => toggleRestWeek(app, w.start)} title={w.userRest ? 'Undo this rest week' : 'Make this a rest week (the loading cycle restarts after it)'}>
+                          {w.userRest ? 'Undo' : 'Rest'}
+                        </button>
+                      )}
+                    </span>
+                  </td>
                   <td className="num">{Math.round(w.volumeFactor * 100)}%</td>
                   <td className="num">{(g.typicalWeeklyHours * w.volumeFactor).toFixed(1)}</td>
                   <td className="num">{Math.round(g.typicalWeeklyHours * w.volumeFactor * w.estTssPerHour)}</td>

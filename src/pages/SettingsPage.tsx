@@ -188,9 +188,9 @@ export function SettingsPage() {
         <p className="small ink2">
           The Team tab reads <code>data/team.json</code> from your team-dashboard repository, which its GitHub Action rebuilds every few hours from your coach account. With your intervals.icu (coach) key added above, the Team tab can also pull each rider’s wellness and activities for load buckets, readiness and Garmin VO2max.
         </p>
-        <Field label="Team data URL" hint="Leave empty for the default team-dashboard repository.">
-          <input className="input" value={settings.teamUrl} placeholder={DEFAULT_TEAM_URL} onChange={(e) => app.updateSettings((s) => ({ ...s, teamUrl: e.target.value.trim() }))} />
-        </Field>
+        <p className="small ink2">
+          Everyone who uses this app sees the same team standings, read from the team dashboard (<code>{DEFAULT_TEAM_URL.replace('https://raw.githubusercontent.com/', '')}</code>).
+        </p>
       </div>
 
       <div className="card stack">

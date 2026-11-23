@@ -124,6 +124,7 @@ export interface GoalSettings {
   typicalWeeklyHours: number; // for season projection
   planStart: ISODate | null; // null = from this week
   useCalendarRaces: boolean; // read RACE_A/B/C from intervals.icu
+  restWeeks?: ISODate[]; // Mondays of weeks you chose to make rest weeks
 }
 
 export type Equipment = 'gym' | 'barbell' | 'dumbbell' | 'bodyweight';
@@ -293,6 +294,7 @@ export interface MacroWeek {
   strengthPhase: StrengthPhase;
   races: CalendarEvent[];
   estTssPerHour: number;
+  userRest?: boolean; // a rest week you chose (vs one the plan scheduled)
 }
 
 export interface MacroPlan {

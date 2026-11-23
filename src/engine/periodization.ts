@@ -367,7 +367,64 @@ export function buildMacroPlan(goal: GoalSettings, events: CalendarEvent[], asOf
     }
   });
 
+  applyRestWeeks(weeks, goal.restWeeks ?? [], cycleLen, segs[0]?.phase ?? null);
   return { weeks, goalDate, taperDays, summary };
+}
+
+/** Phases where a chosen rest week is allowed (not peak/taper/race weeks). */
+const RESTABLE: Phase[] = ['prep', 'base', 'accumulation', 'intensity', 'build', 'volume', 'transmutation', 'maintain', 'transition'];
+
+export function canChooseRest(w: MacroWeek): boolean {
+  return Boolean(w.userRest) || (RESTABLE.includes(w.phase) && w.weekType !== 'recovery' && !w.races.some((r) => r.category === 'RACE_A'));
+}
+
+/**
+ * Turn the weeks you picked into rest weeks. A rest week restarts the loading cycle, so the
+ * next recovery week moves to a full cycle after it (no two easy weeks close together, and
+ * no over-long loading run), until the schedule lines up with the plan again.
+ */
+export function applyRestWeeks(weeks: MacroWeek[], restWeeks: ISODate[], cycleLen: number, firstPhase: Phase | null): void {
+  const chosen = new Set(restWeeks.map((d) => mondayOf(d)));
+  if (!chosen.size) return;
+  const maxLoad = Math.max(1, cycleLen - 1);
+  for (let i = 0; i < weeks.length; i++) {
+    const w = weeks[i];
+    if (!chosen.has(w.start) || !RESTABLE.includes(w.phase) || w.races.some((r) => r.category === 'RACE_A')) continue;
+    weeks[i] = {
+      ...w,
+      weekType: 'recovery',
+      loadStep: 0,
+      volumeFactor: 0.6,
+      estTssPerHour: 42,
+      strengthPhase: 'DL',
+      userRest: true,
+      focus: 'Rest week (your choice) — ~40% less volume, easy riding only, no hard sessions',
+    };
+    // Restart the loading cycle after it: load, load, …, recovery, until it lines up with the
+    // plan again (or hits a HIT block, peak/taper, or another rest week you chose)
+    for (let j = i + 1, pos = 1; j < weeks.length; j++, pos++) {
+      const n = weeks[j];
+      if (chosen.has(n.start) || n.weekType === 'hit_block' || !RESTABLE.includes(n.phase)) break;
+      const wantRecovery = pos % (maxLoad + 1) === 0;
+      if (wantRecovery && n.weekType === 'recovery') break; // back in step with the plan
+      if (wantRecovery) {
+        weeks[j] = { ...n, weekType: 'recovery', loadStep: 0, volumeFactor: 0.6, estTssPerHour: 42, strengthPhase: 'DL', focus: 'Recovery week — ~40% less volume, light intensity, absorb the block' };
+      } else {
+        const step = pos % (maxLoad + 1);
+        const arr = VOLUME[n.phase] ?? [0.9];
+        const wasRecovery = n.weekType === 'recovery';
+        weeks[j] = {
+          ...n,
+          weekType: 'load',
+          loadStep: step,
+          volumeFactor: arr[Math.min(arr.length - 1, step - 1)],
+          estTssPerHour: TSS_PER_HOUR[n.phase],
+          strengthPhase: strengthPhaseFor(n.phase, 'load', n.weekInPhase, n.phaseWeeks, n.phase === firstPhase),
+          focus: wasRecovery ? `${FOCUS[n.phase]} (recovery moved — you just had a rest week)` : n.focus,
+        };
+      }
+    }
+  }
 }
 
 export function macroWeekFor(plan: MacroPlan, date: ISODate): MacroWeek | null {
