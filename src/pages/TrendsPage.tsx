@@ -126,7 +126,7 @@ export function TrendsPage() {
             <Vo2Card vo2={app.vo2} history={app.vo2History} />
             <BestEffortsCard perf={app.performance} />
           </div>
-          <PowerProfileCard power={app.power} />
+          <PowerProfileCard profile={app.profile} curves={app.powerCurves} />
           <AerobicCard trends={trends} />
         </>
       )}

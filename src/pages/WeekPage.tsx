@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { addDays, dowShort, fmtMinutes, fmtShort } from '../engine/dates';
 import { workoutDescription } from '../engine/icuExport';
-import { PHASE_LABELS } from '../engine/periodization';
+import { canChooseRest, PHASE_LABELS } from '../engine/periodization';
 import type { DayConfig } from '../engine/types';
 import { DayCard } from '../components/DayCard';
 import { ComplianceStrip, NextWorkoutCard } from '../components/insights';
@@ -9,6 +9,7 @@ import { TagPicker } from '../components/JournalCard';
 import { ReadinessCard } from '../components/ReadinessCard';
 import { Seg, useToast } from '../components/ui';
 import { WeekSetup } from '../components/WeekSetup';
+import { toggleRestWeek } from '../lib/restWeeks';
 import { useApp } from '../lib/store';
 
 export function WeekPage() {
@@ -68,6 +69,18 @@ export function WeekPage() {
               </span>
               {mw.weekType !== 'load' && <span className="chip">{mw.weekType === 'hit_block' ? 'HIT block' : `${mw.weekType} week`}</span>}
               <span>{mw.focus}</span>
+              {canChooseRest(mw) && (
+                <button
+                  className={`btn sm ${mw.userRest ? 'ghost' : ''}`}
+                  onClick={() => {
+                    toggleRestWeek(app, mw.start);
+                    showToast(mw.userRest ? 'Back to the normal plan for this week.' : 'Rest week set — easy riding only. Your next recovery week moves later.');
+                  }}
+                  title="A planned easy week: ~40% less volume and no hard sessions. The loading cycle restarts after it."
+                >
+                  {mw.userRest ? 'Undo rest week' : 'Make this a rest week'}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -174,7 +187,8 @@ export function WeekPage() {
             profile={app.profile}
             mode={settings.prefs.targetMode}
             isToday={d.date === app.asOf}
-            customized={!!week.days[d.date] && week.days[d.date].status !== 'available'}
+            customized={(!!week.days[d.date] && week.days[d.date].status !== 'available') || !!app.scheduled[d.date]}
+            groupCfg={week.days[d.date]?.group ?? null}
             progression={app.progression}
             onToast={showToast}
             onSwap={(id, dur, level) => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
@@ -182,6 +196,12 @@ export function WeekPage() {
             onReset={() => {
               setDay(d.date, null);
               app.schedule(d.date, null);
+              showToast('Back to the recommended workout.');
+            }}
+            onGroup={(g) => {
+              app.schedule(d.date, null);
+              setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'group', group: g });
+              showToast(`Group ride added — the rest of the week re-planned around it.`);
             }}
           />
         ))}

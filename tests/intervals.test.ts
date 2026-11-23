@@ -38,6 +38,7 @@ describe('intervals.icu client', () => {
       'https://intervals.icu/api/v1/athlete/i123/wellness?oldest=2026-08-01&newest=2026-11-22',
       'https://intervals.icu/api/v1/athlete/i123/activities?oldest=2026-08-01&newest=2026-11-22',
       'https://intervals.icu/api/v1/athlete/i123/events?oldest=2026-08-01&newest=2027-11-22',
+      'https://intervals.icu/api/v1/athlete/i123/power-curves?type=Ride&curves=42d,90d,1y',
     ]);
     expect((calls[0].init.headers as Record<string, string>).authorization).toBe('Basic ' + btoa('API_KEY:KEY'));
     expect(res.profile.ftp).toBe(290);

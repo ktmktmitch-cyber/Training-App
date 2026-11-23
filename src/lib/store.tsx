@@ -11,8 +11,9 @@ import { estimateVo2, type Vo2Estimate } from '../engine/vo2max';
 import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
 import { trainingStatus, type TrainingStatus } from '../engine/status';
-import { buildMacroPlan, macroWeekFor } from '../engine/periodization';
+import { buildMacroPlan, macroWeekFor, withAppRaces } from '../engine/periodization';
 import { planWeek } from '../engine/planner';
+import { targetsLabel, type ExportTargets } from '../engine/targets';
 import { assessReadiness } from '../engine/readiness';
 import { computeTrends } from '../engine/trends';
 import type {
@@ -22,6 +23,7 @@ import type {
   CheckIn,
   DayConfig,
   PlannedWorkout,
+  PowerCurve,
   GoalSettings,
   ISODate,
   MacroPlan,
@@ -66,6 +68,7 @@ export interface DataState {
   activities: Activity[];
   wellness: Wellness[];
   events: CalendarEvent[];
+  powerCurves?: PowerCurve[];
   source: 'demo' | 'intervals' | 'none';
   lastSync: string | null;
   info: string | null;
@@ -166,6 +169,7 @@ interface Ctx {
   status: TrainingStatus;
   compliance: ComplianceDay[];
   power: PowerProfile | null;
+  powerCurves: PowerCurve[];
   feedback: Record<string, Feedback>;
   setFeedback: (activityId: string, f: Feedback | null) => void;
   journal: Journal;
@@ -175,7 +179,9 @@ interface Ctx {
   performance: PerformanceAnalysis;
   scheduled: Record<ISODate, Scheduled>;
   schedule: (date: ISODate, s: Scheduled | null) => void;
-  pushWorkout: (date: ISODate, w: PlannedWorkout) => Promise<string>;
+  pushWorkout: (date: ISODate, w: PlannedWorkout, targets?: ExportTargets) => Promise<string>;
+  /** Default export targets: power from your eFTP (falls back to FTP), HR from your LTHR. */
+  exportDefaults: ExportTargets;
   getConnection: () => Connection;
   account: PublicUser | null;
   guest: boolean;
@@ -411,8 +417,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const profile = data.profile;
   const ftp = settings.ftpOverride ?? profile?.ftp ?? profile?.eftp ?? 250;
   const effProfile = useMemo<AthleteProfile | null>(() => (profile ? { ...profile, ftp } : null), [profile, ftp]);
+  const exportDefaults = useMemo<ExportTargets>(
+    () => ({ mode: 'power', ftp: Math.round(profile?.eftp ?? ftp), lthr: profile?.lthr ?? null }),
+    [profile, ftp],
+  );
 
-  const macro = useMemo(() => buildMacroPlan(settings.goal, data.events, asOf), [settings.goal, data.events, asOf]);
+  const events = useMemo(() => withAppRaces(data.events, settings.goal.races), [data.events, settings.goal.races]);
+  const macro = useMemo(() => buildMacroPlan(settings.goal, events, asOf), [settings.goal, events, asOf]);
   const readiness = useMemo(
     () => assessReadiness(data.wellness, asOf, { checkIn: effectiveCheckIn, model: settings.goal.model, effects }),
     [data.wellness, asOf, effectiveCheckIn, settings.goal.model, effects],
@@ -470,7 +481,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [asOf, data.events, data.activities, snapshots],
   );
   const carryOver = useMemo(() => missedKeySessions(compliance, asOf), [compliance, asOf]);
-  const power = useMemo(() => powerProfile(effProfile), [effProfile]);
+  const powerCurves = useMemo(() => data.powerCurves ?? [], [data.powerCurves]);
+  const power = useMemo(() => powerProfile(effProfile, powerCurves), [effProfile, powerCurves]);
   const limiter = power ? ({ sprint: 'anaerobic', anaerobic: 'anaerobic', vo2: 'vo2max', threshold: 'threshold' } as const)[power.limiter] : null;
   const plan = useMemo(
     () =>
@@ -496,13 +508,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           powerZones: [55, 75, 90, 105, 120, 150, 999],
           hrZones: [],
         },
-        events: data.events,
+        events,
         progression,
         loadFocus,
         carryOver,
         limiter,
       }),
-    [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, data.events, progression, loadFocus, carryOver, limiter],
+    [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, events, progression, loadFocus, carryOver, limiter],
   );
 
   // Remember what was planned (today onward) so compliance works even without pushing to intervals.icu
@@ -522,22 +534,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const canPush = !settings.demo && (Boolean(settings.connection.apiKey) || Boolean(server?.serverIcuKey) || Boolean(account));
 
   const pushWorkout = useCallback(
-    async (date: ISODate, w: PlannedWorkout) => {
+    async (date: ISODate, w: PlannedWorkout, targets?: ExportTargets) => {
       const conn = connection();
       const ev = {
         category: 'WORKOUT' as const,
         start_date_local: `${date}T00:00:00`,
         type: 'Ride',
         name: w.name,
-        description: workoutDescription(w, settings.prefs.targetMode),
+        description: workoutDescription(w, settings.prefs.targetMode, targets ? { targets, icuLthr: profile?.lthr ?? null } : undefined),
         moving_time: Math.round(w.durationMin * 60),
         icu_training_load: w.tss,
         external_id: `${EXTERNAL_PREFIX}-${date}-ride`,
       };
       await pushEvents(conn, [ev], []);
-      return `Sent “${w.name}” to intervals.icu for ${date}. It will sync to Garmin if “Upload planned workouts” is on.`;
+      return `Sent “${w.name}” to intervals.icu for ${date}${targets ? ` (${targetsLabel(targets)})` : ''}. It will sync to Garmin if “Upload planned workouts” is on.`;
     },
-    [connection, settings.prefs.targetMode],
+    [connection, settings.prefs.targetMode, profile],
   );
 
   const push = useCallback(
@@ -584,6 +596,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     status,
     compliance,
     power,
+    powerCurves,
     feedback,
     setFeedback,
     journal,
@@ -595,6 +608,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     schedule,
     pushWorkout,
     getConnection: connection,
+    exportDefaults,
     account,
     guest,
     vo2,

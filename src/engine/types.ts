@@ -1,9 +1,29 @@
+import type { MobilityArea, MobilityFrequency, MobilitySession } from './mobility';
 // Shared domain types for the training engine. Everything here is plain data so the
 // engine stays pure and unit-testable (no React, no fetch).
 
 export type ISODate = string; // YYYY-MM-DD (athlete-local calendar date)
 
 // ---------- Data coming in ----------
+
+/** One best effort on intervals.icu's power curve, with the ride it came from. */
+export interface CurvePoint {
+  secs: number;
+  watts: number;
+  activityId: string | null;
+  activityName: string | null;
+  date: ISODate | null;
+}
+
+/** intervals.icu mean-maximal power curve for a window (e.g. last 90 days). */
+export interface PowerCurve {
+  id: string; // '42d' | '90d' | '1y'
+  label: string;
+  start: ISODate | null;
+  end: ISODate | null;
+  weightKg: number | null;
+  points: CurvePoint[];
+}
 
 export interface AthleteProfile {
   id: string;
@@ -124,6 +144,18 @@ export interface GoalSettings {
   typicalWeeklyHours: number; // for season projection
   planStart: ISODate | null; // null = from this week
   useCalendarRaces: boolean; // read RACE_A/B/C from intervals.icu
+  restWeeks?: ISODate[]; // Mondays of weeks you chose to make rest weeks
+  races?: PlannedRace[]; // races you added in the app
+}
+
+export type RacePriority = 'A' | 'B' | 'C';
+
+export interface PlannedRace {
+  id: string;
+  name: string;
+  date: ISODate;
+  priority: RacePriority;
+  durationMin: number;
 }
 
 export type Equipment = 'gym' | 'barbell' | 'dumbbell' | 'bodyweight';
@@ -137,6 +169,15 @@ export interface StrengthSettings {
   placement: LiftPlacement;
   followPhaseCaps: boolean; // let the planner cap frequency in peak/taper
   includeMobility: boolean;
+  mobility?: MobilityPrefs;
+}
+
+export interface MobilityPrefs {
+  frequency: MobilityFrequency;
+  minutes: number; // rest-day session length; after-ride sessions are shorter
+  focus: MobilityArea[]; // tight spots to emphasise
+  roller: boolean;
+  band: boolean;
 }
 
 export type DayStatus = 'available' | 'off' | 'group' | 'pinned' | 'race';
@@ -255,7 +296,7 @@ export interface PlannedDay {
   weekType: WeekType;
   ride: PlannedWorkout | null;
   strength: StrengthSession | null;
-  mobility?: string | null;
+  mobility?: MobilitySession | null;
   notes: string[];
   status: DayStatus;
 }
@@ -293,6 +334,7 @@ export interface MacroWeek {
   strengthPhase: StrengthPhase;
   races: CalendarEvent[];
   estTssPerHour: number;
+  userRest?: boolean; // a rest week you chose (vs one the plan scheduled)
 }
 
 export interface MacroPlan {

@@ -1,6 +1,7 @@
 import { dowLong } from '../engine/dates';
 import { buildStrengthSession } from '../engine/strength';
 import type { Equipment, Experience, LiftPlacement, StrengthPhase, StrengthSettings } from '../engine/types';
+import { MobilitySettings } from '../components/MobilityCard';
 import { Seg } from '../components/ui';
 import { useApp } from '../lib/store';
 
@@ -79,12 +80,12 @@ export function StrengthPage() {
                 { value: 'any', label: 'Whatever fits' },
               ]}
             />
-            <label className="check small">
-              <input type="checkbox" checked={st.includeMobility} onChange={(e) => set({ includeMobility: e.target.checked })} />
-              <span>Suggest short mobility sessions on rest/recovery days</span>
-            </label>
           </div>
         </div>
+      </div>
+
+      <div className="card">
+        <MobilitySettings />
       </div>
 
       <div className="card">

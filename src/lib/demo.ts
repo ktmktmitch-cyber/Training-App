@@ -3,7 +3,9 @@ import { addDays, dow } from '../engine/dates';
 import { ewma } from '../engine/stats';
 import type { PlanSnapshot } from '../engine/compliance';
 import type { Journal } from '../engine/journal';
-import type { Activity, AthleteProfile, CalendarEvent, ISODate, Wellness } from '../engine/types';
+import type { Activity, AthleteProfile, CalendarEvent, ISODate, PowerCurve, Wellness } from '../engine/types';
+import { morton } from '../engine/powerProfile';
+import { CURVE_SECS } from './intervals';
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -38,7 +40,7 @@ export interface DemoOpts {
   stopDaysAgo?: number; // rider stopped training this many days ago
 }
 
-export function demoData(asOf: ISODate, opts: DemoOpts = {}): { profile: AthleteProfile; activities: Activity[]; wellness: Wellness[]; events: CalendarEvent[] } {
+export function demoData(asOf: ISODate, opts: DemoOpts = {}): { profile: AthleteProfile; activities: Activity[]; wellness: Wellness[]; events: CalendarEvent[]; powerCurves: PowerCurve[] } {
   const r = rng(opts.seed ?? 42);
   const vol = opts.scale ?? 1;
   const ftpBase = opts.ftp ?? 265;
@@ -145,7 +147,28 @@ export function demoData(asOf: ISODate, opts: DemoOpts = {}): { profile: Athlete
   }
   for (let i = 7; i < wellness.length; i++) wellness[i].rampRate = (wellness[i].ctl ?? 0) - (wellness[i - 7].ctl ?? 0);
   const events: CalendarEvent[] = [{ id: 'demo-b', date: addDays(asOf, 54), category: 'RACE_B', name: 'Spring Road Race (demo)' }];
-  return { profile, activities, wellness, events };
+  return { profile, activities, wellness, events, powerCurves: demoCurves(asOf, profile, activities) };
+}
+
+/** Best efforts for the demo: the power model, with sprints a bit above it (as real curves usually are). */
+function demoCurves(asOf: ISODate, p: AthleteProfile, activities: Activity[]): PowerCurve[] {
+  const rides = activities.filter((a) => a.isRide && a.tss);
+  const mk = (id: string, label: string, days: number, f: number): PowerCurve => {
+    const pool = rides.filter((a) => a.date >= addDays(asOf, -days));
+    return {
+      id,
+      label,
+      start: addDays(asOf, -days),
+      end: asOf,
+      weightKg: p.weightKg,
+      points: CURVE_SECS.map((secs, i) => {
+        const a = pool.length ? pool[(i * 7) % pool.length] : null;
+        const boost = secs <= 15 ? 1.12 : secs <= 60 ? 1.04 : 1;
+        return { secs, watts: Math.round(morton(p.cp ?? p.ftp ?? 250, p.wPrime!, p.pMax!, secs) * boost * f), activityId: null, activityName: a?.name ?? null, date: a?.date ?? null };
+      }),
+    };
+  };
+  return [mk('42d', '42 days', 42, 0.97), mk('90d', '90 days', 90, 1), mk('1y', '1 year', 365, 1.03)];
 }
 
 /** A week of "what was planned" so the demo shows compliance colours and a missed session. */

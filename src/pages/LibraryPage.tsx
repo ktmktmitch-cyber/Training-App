@@ -2,13 +2,14 @@ import { useMemo, useRef, useState } from 'react';
 import { addDays, fmtLong, fmtMinutes } from '../engine/dates';
 import { instantiate, levelForTarget } from '../engine/planner';
 import { DIFFICULTY_LABEL, PROG_LABEL, progressionCapable, TEMPLATE_ZONE, type Difficulty } from '../engine/progression';
+import { lthrZones, type ExportMode, type ExportTargets } from '../engine/targets';
 import type { WorkoutCategory } from '../engine/types';
 import { WORKOUT_BY_ID, WORKOUTS, type WorkoutTemplate } from '../engine/workouts';
 import { Skyline } from '../components/charts';
 import { StepsTable } from '../components/DayCard';
 import { ExportBar } from '../components/ExportBar';
 import { DifficultyChip } from '../components/insights';
-import { CATEGORY_LABEL, IntensityChip, useToast } from '../components/ui';
+import { CATEGORY_LABEL, IntensityChip, Seg, useToast } from '../components/ui';
 import { useApp } from '../lib/store';
 
 const CATS: WorkoutCategory[] = ['recovery', 'endurance', 'tempo', 'sweetspot', 'threshold', 'vo2max', 'anaerobic', 'sprint', 'race_sim', 'durability', 'openers', 'test'];
@@ -125,6 +126,14 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
   const [date, setDate] = useState(addDays(app.asOf, 1));
   const w = useMemo(() => instantiate(t, duration, level, app.profile?.weightKg ?? null, app.progression, []), [t, duration, level, app.profile, app.progression]);
   const scheduledHere = app.scheduled[date];
+  // Targets: preview and export the workout against any FTP / threshold HR (default: power, your eFTP)
+  const [tMode, setTMode] = useState<ExportMode>('power');
+  const [ftpIn, setFtpIn] = useState(String(app.exportDefaults.ftp));
+  const [lthrIn, setLthrIn] = useState(app.exportDefaults.lthr ? String(app.exportDefaults.lthr) : '');
+  const ftpUse = Number(ftpIn) >= 50 && Number(ftpIn) <= 700 ? Math.round(Number(ftpIn)) : app.exportDefaults.ftp;
+  const lthrUse = Number(lthrIn) >= 100 && Number(lthrIn) <= 220 ? Math.round(Number(lthrIn)) : app.exportDefaults.lthr;
+  const viewProfile = useMemo(() => (app.profile && lthrUse ? { ...app.profile, hrZones: lthrZones(lthrUse) } : app.profile ?? (lthrUse ? { id: 'x', name: '', ftp: ftpUse, eftp: null, lthr: lthrUse, maxHr: null, restingHr: null, weightKg: null, powerZones: [], hrZones: lthrZones(lthrUse) } : null)), [app.profile, lthrUse, ftpUse]);
+  const libTargets: ExportTargets = { mode: tMode, ftp: ftpUse, lthr: lthrUse ?? null };
 
   return (
     <div className="card stack-lg hero">
@@ -163,7 +172,35 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
         </label>
       </div>
 
-      {w.blocks.length > 0 && <Skyline blocks={w.blocks} large ftp={app.ftp} />}
+      <div className="row" style={{ alignItems: 'flex-end' }}>
+        <label className="field">
+          <span>Targets</span>
+          <Seg<ExportMode>
+            value={tMode}
+            onChange={setTMode}
+            ariaLabel="Workout targets"
+            options={[
+              { value: 'power', label: 'Power' },
+              { value: 'hr', label: 'Heart rate' },
+            ]}
+          />
+        </label>
+        {tMode === 'power' ? (
+          <label className="field">
+            <span>FTP (W){app.profile?.eftp ? ` · eFTP ${Math.round(app.profile.eftp)}` : ''}</span>
+            <input className="input num" style={{ width: 110 }} type="number" min={50} max={700} value={ftpIn} onChange={(e) => setFtpIn(e.target.value)} aria-label="FTP for this workout" />
+          </label>
+        ) : (
+          <label className="field">
+            <span>Threshold HR (bpm)</span>
+            <input className="input num" style={{ width: 110 }} type="number" min={100} max={220} value={lthrIn} placeholder="e.g. 170" onChange={(e) => setLthrIn(e.target.value)} aria-label="Threshold HR for this workout" />
+          </label>
+        )}
+        <span className="tiny muted" style={{ flex: '1 1 200px' }}>
+          {tMode === 'power' ? `Watts below are for ${ftpUse} W.` : lthrUse ? `bpm below are for a threshold HR of ${lthrUse}. Efforts under 2 min are by feel.` : 'Enter your threshold HR to see bpm targets.'}
+        </span>
+      </div>
+      {w.blocks.length > 0 && <Skyline blocks={w.blocks} large ftp={ftpUse} />}
       <div className="hero-stats">
         <div>
           <b className="num">{fmtMinutes(w.durationMin)}</b>
@@ -182,10 +219,10 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
           <span>Workout level</span>
         </div>
       </div>
-      <details className="more">
+      <details className="more" open>
         <summary>Steps & targets</summary>
         <div style={{ marginTop: 8 }}>
-          <StepsTable blocks={w.blocks} ftp={app.ftp} profile={app.profile} mode={app.settings.prefs.targetMode} />
+          <StepsTable blocks={w.blocks} ftp={ftpUse} profile={viewProfile} mode={tMode} />
         </div>
       </details>
       <p className="small">
@@ -217,7 +254,7 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
           {scheduledHere ? 'Replace in plan' : 'Add to my plan'}
         </button>
       </div>
-      <ExportBar workout={w} date={date} onDone={showToast} />
+      <ExportBar workout={w} date={date} onDone={showToast} defaults={libTargets} />
       <p className="tiny muted">
         <b>Garmin:</b> “Send to intervals.icu” lands on your Garmin calendar automatically if Garmin upload is on in intervals.icu. The .FIT file can also be copied to <code>Garmin/NewFiles</code> on your Edge or watch over USB. Zwift uses .zwo; most other indoor apps import .MRC.
       </p>

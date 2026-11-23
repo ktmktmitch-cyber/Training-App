@@ -11,6 +11,7 @@
 //  * Respect the CTL ramp-rate limit; readiness can trim volume and delay intensity.
 import { addDays, diffDays, dow, dowLong, dowShort, fmtMinutes, range } from './dates';
 import { fuelingFor } from './fueling';
+import { buildMobility, type MobilitySession } from './mobility';
 import { longRideCap, weekProfile, type WeekProfile } from './profiles';
 import { macroWeekFor, PHASE_LABELS } from './periodization';
 import { projectLoad, round } from './stats';
@@ -27,6 +28,7 @@ import type {
   PlannedWorkout,
   PlannerPrefs,
   Readiness,
+  MobilityPrefs,
   StrengthSettings,
   Trends,
   WeekConfig,
@@ -83,7 +85,7 @@ export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: Cale
   const race = evs.find((e) => ['RACE_A', 'RACE_B', 'RACE_C'].includes(e.category));
   if (race) {
     const priority = race.category === 'RACE_A' ? 'A' : race.category === 'RACE_B' ? 'B' : 'C';
-    return { ...base, status: 'race', race: { name: race.name, durationMin: 120, priority } };
+    return { ...base, status: 'race', race: { name: race.name, durationMin: race.plannedSec ? Math.round(race.plannedSec / 60) : 120, priority } };
   }
   if (goalDate === date) return { ...base, status: 'race', race: { name: 'Goal event', durationMin: 180, priority: 'A' } };
   if (evs.some((e) => ['SICK', 'INJURED', 'HOLIDAY'].includes(e.category))) return { ...base, status: 'off' };
@@ -710,8 +712,7 @@ export function planWeek(input: PlanInput): WeekPlan {
   });
   for (const p of planned) {
     p.strength = strengthRes.sessions[p.date] ?? null;
-    if (input.strength.includeMobility && (!p.ride || p.ride.category === 'recovery') && !p.strength)
-      p.mobility = '10-15 min mobility: hip-flexor and hamstring stretches, thoracic rotations, glute bridges, cat-cow.';
+    p.mobility = mobilityFor(p, mobilityPrefs(input.strength));
   }
   ctx.summary.push(...strengthRes.notes);
 
@@ -802,4 +803,34 @@ export function workoutAlternatives(w: PlannedWorkout, progression: Progression 
     if (t.id !== 'recovery') add('Recovery spin', 'Very easy, 45 min', 'recovery', 0, 45);
   }
   return out;
+}
+
+/** Mobility preferences, filling in defaults for older saved settings. */
+export function mobilityPrefs(st: StrengthSettings): MobilityPrefs {
+  const m = st.mobility;
+  return {
+    frequency: m?.frequency ?? (st.includeMobility === false ? 'off' : 'rest_days'),
+    minutes: m?.minutes ?? 10,
+    focus: m?.focus ?? [],
+    roller: m?.roller ?? false,
+    band: m?.band ?? false,
+  };
+}
+
+/**
+ * Which days get a mobility session, and which kind:
+ *  - rest days get the full session; easy-ride days a shorter after-ride one
+ *  - "most days" adds a short after-ride session on hard days too (not race days or lift days)
+ *  - "every day" also adds one after lifting
+ */
+export function mobilityFor(p: PlannedDay, m: MobilityPrefs): MobilitySession | null {
+  if (m.frequency === 'off' || p.status === 'race' || p.ride?.category === 'race') return null;
+  const opts = (minutes: number) => ({ focus: m.focus, minutes, equipment: { roller: m.roller, band: m.band } });
+  const short = Math.max(5, Math.round(m.minutes * 0.6));
+  const easyRide = p.ride && (p.ride.category === 'recovery' || (p.ride.category === 'endurance' && !p.ride.key));
+  if (!p.ride && !p.strength) return buildMobility('rest_day', p.date, opts(m.minutes));
+  if (p.strength && m.frequency !== 'daily') return null; // the lifting warm-up covers it
+  if (easyRide && !p.strength) return buildMobility('post_ride', p.date, opts(short));
+  if (m.frequency === 'rest_days') return null;
+  return buildMobility('post_ride', p.date, opts(p.strength ? 5 : short));
 }

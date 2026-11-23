@@ -1,15 +1,15 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ComplianceDay } from '../engine/compliance';
 import { dowShort, fmtLong, fmtMinutes, fmtShort, fromISO } from '../engine/dates';
 import { FOCUS_LABEL, type FocusKey, type LoadFocus } from '../engine/loadFocus';
 import { workoutAlternatives } from '../engine/planner';
-import { POWER_LABEL, type PowerKey, type PowerProfile } from '../engine/powerProfile';
+import { POWER_LABEL, POWER_SECS, powerProfile, type PowerKey } from '../engine/powerProfile';
 import { DIFFICULTY_LABEL, FEEDBACK_LABEL, PROG_LABEL, PROG_ZONES, rpeToFeedback, type Difficulty, type Feedback, type Progression } from '../engine/progression';
 import type { TrainingStatus } from '../engine/status';
-import type { PlannedDay, Readiness, Trends } from '../engine/types';
+import type { AthleteProfile, CurvePoint, PlannedDay, PowerCurve, Readiness, Trends } from '../engine/types';
 import { Skyline } from './charts';
 import { ExportBar } from './ExportBar';
-import { CATEGORY_LABEL, IntensityChip, STATUS, StatusIcon } from './ui';
+import { CATEGORY_LABEL, IntensityChip, Seg, STATUS, StatusIcon } from './ui';
 
 const TONE_STATUS = { good: 'green', neutral: 'unknown', warn: 'amber', bad: 'red' } as const;
 
@@ -323,15 +323,47 @@ export function ProgressionCard({ progression }: { progression: Progression }) {
 }
 
 // ---------- Power profile (JOIN / 4DP / TrainingPeaks) ----------
-export function PowerProfileCard({ power }: { power: PowerProfile | null }) {
+function fmtSecs(secs: number): string {
+  if (secs < 60) return `${secs} s`;
+  if (secs < 3600) return `${secs / 60} min`;
+  return `${secs / 3600} h`;
+}
+
+function fmtDay(d: string | null | undefined): string {
+  return d ? new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+}
+
+function RideLink({ pt }: { pt: CurvePoint }) {
+  const name = pt.activityName ?? 'ride';
+  return pt.activityId ? (
+    <a href={`https://intervals.icu/activities/${pt.activityId}`} target="_blank" rel="noreferrer">
+      {name}
+    </a>
+  ) : (
+    <>{name}</>
+  );
+}
+
+const WINDOWS: { id: string; label: string }[] = [
+  { id: '42d', label: '42 days' },
+  { id: '90d', label: '90 days' },
+  { id: '1y', label: '1 year' },
+];
+
+export function PowerProfileCard({ profile, curves }: { profile: AthleteProfile | null; curves: PowerCurve[] }) {
+  const [win, setWin] = useState('90d');
+  const power = useMemo(() => powerProfile(profile, curves, win), [profile, curves, win]);
+  const curve = curves.find((c) => c.id === win) ?? null;
+  const weight = profile?.weightKg ?? curve?.weightKg ?? null;
   if (!power)
     return (
       <div className="card">
         <h2 style={{ marginBottom: 6 }}>Power profile</h2>
-        <p className="muted small">Needs your weight and intervals.icu’s power model (eFTP, W′, Pmax), which appear after a few rides with a power meter.</p>
+        <p className="muted small">Needs your weight and either your intervals.icu power curve or power model (eFTP, W′, Pmax), which appear after a few rides with a power meter.</p>
       </div>
     );
   const keys: PowerKey[] = ['sprint', 'anaerobic', 'vo2', 'threshold'];
+  const available = WINDOWS.filter((w) => curves.some((c) => c.id === w.id && c.points.length));
   return (
     <div className="card">
       <div className="card-head">
@@ -341,30 +373,47 @@ export function PowerProfileCard({ power }: { power: PowerProfile | null }) {
             Rider type: <b>{power.type}</b> · strength: {POWER_LABEL[power.strength].split(' (')[0].toLowerCase()} · limiter: {POWER_LABEL[power.limiter].split(' (')[0].toLowerCase()}
           </span>
         </div>
+        {available.length > 0 && (
+          <Seg<string> value={win} onChange={setWin} ariaLabel="Best-effort window" options={available.map((w) => ({ value: w.id, label: w.label }))} />
+        )}
       </div>
       <div className="stack" style={{ gap: 10 }}>
-        {keys.map((k) => (
-          <div key={k} className="hrow">
-            <div className="hrow-label">
-              <span className="small" style={{ fontWeight: 600 }}>
-                {POWER_LABEL[k]}
-              </span>
-              <span className="tiny muted num">
-                {power.watts[k]} W · {power.wkg[k].toFixed(1)} W/kg
+        {keys.map((k) => {
+          const src = power.sources[k];
+          return (
+            <div key={k} className="hrow">
+              <div className="hrow-label">
+                <span className="small" style={{ fontWeight: 600 }}>
+                  {POWER_LABEL[k]}
+                </span>
+                <span className="tiny muted num">
+                  {power.watts[k]} W · {power.wkg[k].toFixed(1)} W/kg
+                </span>
+                <span className="tiny muted">
+                  {src.kind === 'best' && src.point ? (
+                    <>
+                      Best {fmtSecs(src.secs!)} · <RideLink pt={src.point} /> · {fmtDay(src.point.date)}
+                    </>
+                  ) : src.kind === 'model' ? (
+                    <>Model estimate (no {fmtSecs(src.secs!)} best on the curve)</>
+                  ) : (
+                    <>Your FTP</>
+                  )}
+                </span>
+              </div>
+              <div className="htrack" role="img" aria-label={`${POWER_LABEL[k]} score ${power.score[k]} of 100`}>
+                {[25, 50, 75].map((t) => (
+                  <i key={t} className="htick" style={{ left: `${t}%` }} />
+                ))}
+                <div className="hfill" style={{ width: `${Math.max(2, power.score[k])}%`, background: k === power.limiter ? 'var(--s2)' : 'var(--s1)' }} />
+              </div>
+              <span className="hrow-val small">
+                <b className="num">{power.score[k]}</b>
+                {k === power.limiter ? <span className="tiny muted"> limiter</span> : null}
               </span>
             </div>
-            <div className="htrack" role="img" aria-label={`${POWER_LABEL[k]} score ${power.score[k]} of 100`}>
-              {[25, 50, 75].map((t) => (
-                <i key={t} className="htick" style={{ left: `${t}%` }} />
-              ))}
-              <div className="hfill" style={{ width: `${Math.max(2, power.score[k])}%`, background: k === power.limiter ? 'var(--s2)' : 'var(--s1)' }} />
-            </div>
-            <span className="hrow-val small">
-              <b className="num">{power.score[k]}</b>
-              {k === power.limiter ? <span className="tiny muted"> limiter</span> : null}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="hrow" style={{ marginTop: 4 }}>
         <span />
@@ -379,6 +428,53 @@ export function PowerProfileCard({ power }: { power: PowerProfile | null }) {
       <p className="tiny muted" style={{ marginTop: 8 }}>
         {power.note} When a phase offers a choice, sessions that target your limiter are preferred.
       </p>
+      {curve && curve.points.length > 0 && (
+        <details className="more" style={{ marginTop: 8 }}>
+          <summary>
+            All best efforts · {curve.label.toLowerCase()}
+            {curve.start && curve.end ? ` (${fmtDay(curve.start)} – ${fmtDay(curve.end)})` : ''}
+          </summary>
+          <div className="table-wrap" style={{ marginTop: 8 }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Duration</th>
+                  <th className="num">Watts</th>
+                  <th className="num">W/kg</th>
+                  <th>Ride</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {curve.points.map((pt) => (
+                  <tr key={pt.secs}>
+                    <td>{fmtSecs(pt.secs)}</td>
+                    <td className="num">{pt.watts}</td>
+                    <td className="num">{weight ? (pt.watts / weight).toFixed(1) : '—'}</td>
+                    <td style={{ whiteSpace: 'normal', minWidth: 160 }}>
+                      <RideLink pt={pt} />
+                    </td>
+                    <td>{fmtDay(pt.date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="tiny muted" style={{ marginTop: 6 }}>
+            From intervals.icu’s power curve (Ride). Weight {weight ? `${Math.round(weight * 10) / 10} kg` : 'not set'}.
+            {(['sprint', 'anaerobic', 'vo2'] as const).some((k) => power.sources[k].modelWatts) && (
+              <>
+                {' '}For comparison, the power model predicts{' '}
+                {(['sprint', 'anaerobic', 'vo2'] as const)
+                  .filter((k) => power.sources[k].modelWatts)
+                  .map((k) => `${fmtSecs(POWER_SECS[k])} ${power.sources[k].modelWatts} W`)
+                  .join(', ')}
+                .
+              </>
+            )}
+          </p>
+        </details>
+      )}
     </div>
   );
 }

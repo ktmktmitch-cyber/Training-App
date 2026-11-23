@@ -1,7 +1,7 @@
 // intervals.icu API client + normalisation into engine types.
 // Works through the bundled Node proxy (/api/icu → intervals.icu, no CORS issues, key
 // can live server-side) or directly from the browser with your API key.
-import type { Activity, AthleteProfile, CalendarEvent, ISODate, Wellness } from '../engine/types';
+import type { Activity, AthleteProfile, CalendarEvent, ISODate, PowerCurve, Wellness } from '../engine/types';
 import type { IcuEvent } from '../engine/icuExport';
 
 export interface Connection {
@@ -247,12 +247,47 @@ export function normalizeEvent(e: RawEvent): CalendarEvent {
 }
 
 // ---------- API ----------
+interface RawCurves {
+  list?: { id: string; label?: string; start_date_local?: string; end_date_local?: string; weight?: number; secs?: number[]; watts?: number[]; values?: number[]; activity_id?: string[] }[];
+  activities?: Record<string, { id: string; name?: string; start_date_local?: string }>;
+}
+
+/** Durations kept from the power curve (seconds). */
+export const CURVE_SECS = [1, 5, 10, 15, 30, 60, 120, 180, 300, 480, 600, 1200, 1800, 3600, 5400, 7200];
+
+export function normalizeCurves(raw: RawCurves | null): PowerCurve[] {
+  const acts = raw?.activities ?? {};
+  return (raw?.list ?? []).map((c) => {
+    const secs = c.secs ?? [];
+    const watts = c.watts ?? c.values ?? [];
+    const points: PowerCurve['points'] = [];
+    for (const want of CURVE_SECS) {
+      const i = secs.indexOf(want);
+      if (i < 0 || !watts[i]) continue;
+      const id = c.activity_id?.[i] ?? null;
+      const a = id ? acts[id] : undefined;
+      points.push({ secs: want, watts: Math.round(watts[i]), activityId: id, activityName: a?.name ?? null, date: a?.start_date_local?.slice(0, 10) ?? null });
+    }
+    return { id: c.id, label: c.label ?? c.id, start: c.start_date_local?.slice(0, 10) ?? null, end: c.end_date_local?.slice(0, 10) ?? null, weightKg: c.weight ?? null, points };
+  });
+}
+
+/** Best efforts (42 days, 90 days, 1 year). Never fails the sync — returns [] if unavailable. */
+export async function fetchPowerCurves(conn: Connection): Promise<PowerCurve[]> {
+  try {
+    return normalizeCurves(await call<RawCurves>(conn, `/athlete/${aid(conn)}/power-curves?type=Ride&curves=42d,90d,1y`));
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchAll(conn: Connection, oldest: ISODate, newest: ISODate, futureEnd: ISODate) {
-  const [athlete, wellnessRaw, activitiesRaw, eventsRaw] = await Promise.all([
+  const [athlete, wellnessRaw, activitiesRaw, eventsRaw, powerCurves] = await Promise.all([
     call<RawAthlete>(conn, `/athlete/${aid(conn)}`),
     call<RawWellness[]>(conn, `/athlete/${aid(conn)}/wellness?oldest=${oldest}&newest=${newest}`),
     call<RawActivity[]>(conn, `/athlete/${aid(conn)}/activities?oldest=${oldest}&newest=${newest}`),
     call<RawEvent[]>(conn, `/athlete/${aid(conn)}/events?oldest=${oldest}&newest=${futureEnd}`),
+    fetchPowerCurves(conn),
   ]);
   const wellness = (wellnessRaw ?? []).map(normalizeWellness).sort((a, b) => a.date.localeCompare(b.date));
   const latestW = [...wellness].reverse().find((w) => w.eftp) ?? null;
@@ -261,6 +296,7 @@ export async function fetchAll(conn: Connection, oldest: ISODate, newest: ISODat
     wellness,
     activities: (activitiesRaw ?? []).map(normalizeActivity).filter((a) => a.date),
     events: (eventsRaw ?? []).map(normalizeEvent),
+    powerCurves,
   };
 }
 

@@ -4,6 +4,7 @@
 import { addDays, diffDays, fmtShort, mondayOf } from './dates';
 import type {
   CalendarEvent,
+  PlannedRace,
   EventType,
   GoalSettings,
   ISODate,
@@ -245,13 +246,27 @@ function strengthPhaseFor(phase: Phase, weekType: WeekType, weekInPhase: number,
   }
 }
 
+export const APP_RACE_PREFIX = 'race-';
+export const isAppRace = (e: CalendarEvent) => e.id.startsWith(APP_RACE_PREFIX);
+
+/** Races you added in the app, as calendar events (skipping any already on your intervals.icu calendar that day). */
+export function withAppRaces(events: CalendarEvent[], races: PlannedRace[] = []): CalendarEvent[] {
+  const extra = races
+    .filter((r) => !events.some((e) => e.date === r.date && e.category.startsWith('RACE_')))
+    .map<CalendarEvent>((r) => ({ id: `${APP_RACE_PREFIX}${r.id}`, date: r.date, category: `RACE_${r.priority}`, name: r.name, plannedSec: r.durationMin * 60 }));
+  return extra.length ? [...events, ...extra] : events;
+}
+
 export function resolveGoalDate(goal: GoalSettings, events: CalendarEvent[], asOf: ISODate): { date: ISODate | null; name: string } {
+  if (goal.eventDate && goal.eventType !== 'fitness' && diffDays(goal.eventDate, asOf) >= 0) return { date: goal.eventDate, name: goal.eventName || 'Goal event' };
+  const nextA = (pred: (e: CalendarEvent) => boolean) =>
+    events.filter((e) => e.category === 'RACE_A' && diffDays(e.date, asOf) >= 0 && pred(e)).sort((x, y) => x.date.localeCompare(y.date))[0];
+  // An A race you add in the app always becomes the season goal (build → peak → taper)
+  const mine = nextA((e) => isAppRace(e));
+  if (mine) return { date: mine.date, name: mine.name || 'A race' };
   if (goal.eventType === 'fitness') return { date: null, name: goal.eventName || 'General fitness' };
-  if (goal.eventDate && diffDays(goal.eventDate, asOf) >= 0) return { date: goal.eventDate, name: goal.eventName || 'Goal event' };
   if (goal.useCalendarRaces) {
-    const a = events
-      .filter((e) => e.category === 'RACE_A' && diffDays(e.date, asOf) >= 0)
-      .sort((x, y) => x.date.localeCompare(y.date))[0];
+    const a = nextA(() => true);
     if (a) return { date: a.date, name: a.name || 'A race' };
   }
   return { date: null, name: goal.eventName || 'General fitness' };
@@ -284,7 +299,12 @@ export function buildMacroPlan(goal: GoalSettings, events: CalendarEvent[], asOf
     if (diffDays(raceMonday, start) < 0) start = currentMonday;
     if (diffDays(raceMonday, start) < 0) start = raceMonday;
     const n = Math.floor(diffDays(raceMonday, start) / 7) + 1;
-    taperDays = taperDaysFor(goal.eventType, goal.eventDurationHours);
+    // A race added in the app while the goal type is "general fitness": taper like a road race of that length
+    const goalRace = events.find((e) => e.date === goalDate && isAppRace(e) && e.category === 'RACE_A');
+    taperDays =
+      goal.eventType === 'fitness' && goalRace
+        ? taperDaysFor('road_race', (goalRace.plannedSec ?? 7200) / 3600)
+        : taperDaysFor(goal.eventType, goal.eventDurationHours);
     const raceOffset = (diffDays(goalDate, raceMonday) + 7) % 7;
     const taperWeeks = n >= 2 && taperDays - raceOffset > 2 ? 1 : 0;
     segs = allocate(goal, n, taperWeeks);
@@ -367,7 +387,64 @@ export function buildMacroPlan(goal: GoalSettings, events: CalendarEvent[], asOf
     }
   });
 
+  applyRestWeeks(weeks, goal.restWeeks ?? [], cycleLen, segs[0]?.phase ?? null);
   return { weeks, goalDate, taperDays, summary };
+}
+
+/** Phases where a chosen rest week is allowed (not peak/taper/race weeks). */
+const RESTABLE: Phase[] = ['prep', 'base', 'accumulation', 'intensity', 'build', 'volume', 'transmutation', 'maintain', 'transition'];
+
+export function canChooseRest(w: MacroWeek): boolean {
+  return Boolean(w.userRest) || (RESTABLE.includes(w.phase) && w.weekType !== 'recovery' && !w.races.some((r) => r.category === 'RACE_A'));
+}
+
+/**
+ * Turn the weeks you picked into rest weeks. A rest week restarts the loading cycle, so the
+ * next recovery week moves to a full cycle after it (no two easy weeks close together, and
+ * no over-long loading run), until the schedule lines up with the plan again.
+ */
+export function applyRestWeeks(weeks: MacroWeek[], restWeeks: ISODate[], cycleLen: number, firstPhase: Phase | null): void {
+  const chosen = new Set(restWeeks.map((d) => mondayOf(d)));
+  if (!chosen.size) return;
+  const maxLoad = Math.max(1, cycleLen - 1);
+  for (let i = 0; i < weeks.length; i++) {
+    const w = weeks[i];
+    if (!chosen.has(w.start) || !RESTABLE.includes(w.phase) || w.races.some((r) => r.category === 'RACE_A')) continue;
+    weeks[i] = {
+      ...w,
+      weekType: 'recovery',
+      loadStep: 0,
+      volumeFactor: 0.6,
+      estTssPerHour: 42,
+      strengthPhase: 'DL',
+      userRest: true,
+      focus: 'Rest week (your choice) — ~40% less volume, easy riding only, no hard sessions',
+    };
+    // Restart the loading cycle after it: load, load, …, recovery, until it lines up with the
+    // plan again (or hits a HIT block, peak/taper, or another rest week you chose)
+    for (let j = i + 1, pos = 1; j < weeks.length; j++, pos++) {
+      const n = weeks[j];
+      if (chosen.has(n.start) || n.weekType === 'hit_block' || !RESTABLE.includes(n.phase)) break;
+      const wantRecovery = pos % (maxLoad + 1) === 0;
+      if (wantRecovery && n.weekType === 'recovery') break; // back in step with the plan
+      if (wantRecovery) {
+        weeks[j] = { ...n, weekType: 'recovery', loadStep: 0, volumeFactor: 0.6, estTssPerHour: 42, strengthPhase: 'DL', focus: 'Recovery week — ~40% less volume, light intensity, absorb the block' };
+      } else {
+        const step = pos % (maxLoad + 1);
+        const arr = VOLUME[n.phase] ?? [0.9];
+        const wasRecovery = n.weekType === 'recovery';
+        weeks[j] = {
+          ...n,
+          weekType: 'load',
+          loadStep: step,
+          volumeFactor: arr[Math.min(arr.length - 1, step - 1)],
+          estTssPerHour: TSS_PER_HOUR[n.phase],
+          strengthPhase: strengthPhaseFor(n.phase, 'load', n.weekInPhase, n.phaseWeeks, n.phase === firstPhase),
+          focus: wasRecovery ? `${FOCUS[n.phase]} (recovery moved — you just had a rest week)` : n.focus,
+        };
+      }
+    }
+  }
 }
 
 export function macroWeekFor(plan: MacroPlan, date: ISODate): MacroWeek | null {
