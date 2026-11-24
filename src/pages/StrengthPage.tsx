@@ -1,6 +1,6 @@
 import { dowLong } from '../engine/dates';
-import { buildStrengthSession } from '../engine/strength';
-import type { Equipment, Experience, LiftPlacement, StrengthPhase, StrengthSettings } from '../engine/types';
+import { buildStrengthSession, goalPhase } from '../engine/strength';
+import type { Equipment, Experience, LiftPlacement, StrengthPhase, StrengthGoal, StrengthSettings } from '../engine/types';
 import { MobilitySettings } from '../components/MobilityCard';
 import { Seg } from '../components/ui';
 import { useApp } from '../lib/store';
@@ -20,13 +20,30 @@ export function StrengthPage() {
   const set = (patch: Partial<StrengthSettings>) => app.updateSettings((s) => ({ ...s, strength: { ...s.strength, ...patch } }));
   const liftDays = app.plan.days.filter((d) => d.strength);
   const phase = liftDays[0]?.strength?.phase ?? app.plan.macroWeek?.strengthPhase ?? 'MS';
-  const preview = buildStrengthSession(phase, st.equipment, st.experience, 0);
+  const preview = buildStrengthSession(liftDays[0]?.strength?.phase ?? goalPhase(phase, st.goal), st.equipment, st.experience, 0);
 
   return (
     <>
       <h1>Strength</h1>
       <div className="card stack-lg">
         <div className="grid-2">
+          <div className="stack">
+            <h3>Goal</h3>
+            <Seg<StrengthGoal>
+              value={st.goal ?? 'build'}
+              onChange={(v) => set({ goal: v })}
+              ariaLabel="Strength goal"
+              options={[
+                { value: 'build', label: 'Build strength' },
+                { value: 'maintain', label: 'Maintain' },
+              ]}
+            />
+            <p className="tiny muted" style={{ margin: 0 }}>
+              {(st.goal ?? 'build') === 'build'
+                ? 'Progressive blocks: adaptation → heavy max-strength → power, 2–3× a week in base. Best in the off-season and base.'
+                : 'Holds the strength you have: 1–2 short heavy sessions a week, fewer sets, no soreness — so more energy goes to the bike.'}
+            </p>
+          </div>
           <div className="stack">
             <h3>Sessions per week</h3>
             <Seg<0 | 1 | 2 | 3>

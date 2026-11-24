@@ -113,7 +113,8 @@ export function CalendarPage() {
       .catch(() => {
         if (gone) return;
         const acts: Activity[] = rider.recent_rides.map((x, i) => ({ id: `t${i}`, date: x.date, startTime: x.start, name: x.name, type: x.type || 'Ride', isRide: /ride/i.test(x.type || 'Ride'), isStrength: /weight/i.test(x.type), movingSec: Math.round(x.hours * 3600), distanceM: x.miles != null ? x.miles * 1609.34 : null, tss: x.load, intensity: null, normalizedPower: x.np, avgHr: null, powerZoneSecs: null, hrZoneSecs: null, source: 'intervals' }));
-        setOther({ id: who, activities: acts, events: [], plan: null, limited: true, months: [] });
+        const planned: CalendarEvent[] = (rider.planned ?? []).map((e, i) => ({ id: `tp${i}`, date: e.date, category: e.category, name: e.name, type: e.type || undefined, plannedSec: e.minutes ? e.minutes * 60 : null, plannedTss: e.load }));
+        setOther({ id: who, activities: acts, events: planned, plan: null, limited: true, months: [] });
       })
       .finally(() => !gone && setLoading(false));
     return () => {
@@ -185,7 +186,7 @@ export function CalendarPage() {
       {loading && <div className="callout">Loading {label} from intervals.icu…</div>}
       {viewingOther && other!.limited && (
         <div className="callout">
-          Showing {rider?.rider}’s recent rides from the team data. Their full history, planned workouts and time off show here once they add you as a coach on intervals.icu.
+          Showing {rider?.rider}’s recent rides and planned workouts (next 2 weeks) from the team data. Their full history shows here once they add you as a coach on intervals.icu.
         </div>
       )}
 
@@ -214,7 +215,7 @@ export function CalendarPage() {
                 const p = planByDay[d];
                 const c = compliance[d];
                 const race = evs.find((e) => e.category.startsWith('RACE_'));
-                const plannedEv = !p && diffDays(d, asOf) > 0 ? evs.find((e) => e.category === 'WORKOUT') : undefined;
+                const plannedEv = !p && diffDays(d, asOf) >= 0 && !acts.length ? evs.find((e) => e.category === 'WORKOUT') : undefined;
                 const off = evs.find((e) => ['SICK', 'INJURED', 'HOLIDAY'].includes(e.category));
                 const tags = who ? [] : (app.journal[d] ?? []);
                 return (
@@ -242,7 +243,7 @@ export function CalendarPage() {
                       </span>
                     ))}
                     {p?.ride && !acts.length && (
-                      <span className="cal-item plan">
+                      <span className={`cal-item plan ${p.ride.why[0]?.startsWith('From your coach') ? 'coach' : ''}`} title={p.ride.why[0]?.startsWith('From your coach') ? 'Scheduled by your coach' : undefined}>
                         {p.ride.name} <span className="muted">· {fmtMinutes(p.ride.durationMin)}</span>
                       </span>
                     )}
@@ -254,7 +255,7 @@ export function CalendarPage() {
                       ))}
                     {p?.strength && !acts.some((a) => a.isStrength) && <span className="cal-item plan">Strength</span>}
                     {plannedEv && (
-                      <span className="cal-item plan">
+                      <span className={`cal-item plan ${(plannedEv.externalId ?? '').startsWith('tacoach-') ? 'coach' : ''}`} title={(plannedEv.externalId ?? '').startsWith('tacoach-') ? 'Scheduled by the coach' : undefined}>
                         {plannedEv.name}
                         {plannedEv.plannedSec ? <span className="muted"> · {fmtMinutes(Math.round(plannedEv.plannedSec / 60))}</span> : null}
                       </span>
@@ -283,6 +284,10 @@ export function CalendarPage() {
           <span>✓ ~ ! × planned vs done</span>
           <span>Shaded weeks: rest / recovery</span>
           <span>Dot: journal entry</span>
+          <span>
+            <span className="coach-dot" />
+            From the coach
+          </span>
         </div>
       </div>
 
@@ -370,11 +375,13 @@ function DayDetail({ date, acts, evs, planned, snapshot, onToast, self = true }:
           {planned.ride && (
             <div className="stack" style={{ gap: 8 }}>
               <div>
+                {planned.ride.why[0]?.startsWith('From your coach') && <span className="coach-dot" title="Scheduled by your coach" />}
                 <b>{planned.ride.name}</b>{' '}
                 <span className="small muted">
                   · {fmtMinutes(planned.ride.durationMin)} · {planned.ride.tss} TSS
                 </span>
               </div>
+              {planned.ride.why[0]?.startsWith('From your coach') && <div className="tiny coach-note">Scheduled by your coach — swap or move it on the Week page.</div>}
               <p className="small ink2" style={{ margin: 0 }}>
                 {planned.ride.purpose}
               </p>
@@ -413,8 +420,10 @@ function DayDetail({ date, acts, evs, planned, snapshot, onToast, self = true }:
           <h3>On your intervals.icu calendar</h3>
           {plannedEvs.map((e) => (
             <div key={e.id} className="small">
+              {(e.externalId ?? '').startsWith('tacoach-') && <span className="coach-dot" title="Scheduled by the coach" />}
               <b>{e.name}</b>
               {e.plannedSec ? ` · ${fmtMinutes(Math.round(e.plannedSec / 60))}` : ''}
+              {(e.externalId ?? '').startsWith('tacoach-') ? <span className="chip tiny coach-chip" style={{ marginLeft: 6 }}>From {self ? 'your ' : 'the '}coach</span> : null}
               {e.plannedTss ? ` · ${e.plannedTss} TSS` : ''}
             </div>
           ))}

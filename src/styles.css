@@ -27,6 +27,7 @@
   --s3: #1baf7a;
   --s4: #eda100;
   --s5: #e87ba4;
+  --coach: #8a5cd6;
   --s-neutral: #a9a79f;
   /* ordinal intensity ramp (zones 1→7), one hue light→dark */
   --z1: #b7d3f6;
@@ -69,6 +70,7 @@
     --s3: #199e70;
     --s4: #c98500;
     --s5: #d55181;
+    --coach: #a07ce8;
     --s-neutral: #6b6a64;
     --z1: #184f95;
     --z2: #1c5cab;
@@ -106,6 +108,7 @@
   --s3: #199e70;
   --s4: #c98500;
   --s5: #d55181;
+  --coach: #a07ce8;
   --s-neutral: #6b6a64;
   --z1: #184f95;
   --z2: #1c5cab;
@@ -1520,3 +1523,15 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .tone-serious { --tc: var(--serious); --ti: var(--serious); }
 .tone-bad { --tc: var(--critical); --ti: var(--critical-ink); }
 .state-col { min-width: 150px; }
+
+/* Coach: cancel sends */
+.btn.danger { color: var(--bad, #c0392b); border-color: currentColor; background: transparent; }
+.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad, #c0392b) 10%, transparent); }
+.chip-x { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0 0 0 4px; font-size: 13px; line-height: 1; opacity: 0.7; }
+.chip-x:hover:not(:disabled) { opacity: 1; }
+/* Workouts your coach scheduled */
+.cal-item.coach { border-left-color: var(--coach) !important; background: color-mix(in srgb, var(--coach) 12%, transparent); }
+.coach-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--coach); margin-right: 4px; vertical-align: middle; }
+.coach-note { color: var(--ink-2); border-left: 3px solid var(--coach); padding-left: 6px; margin-top: 4px; }
+.chip.coach-chip { border-color: var(--coach); }
+.drop-day.coach { border-color: var(--coach); }

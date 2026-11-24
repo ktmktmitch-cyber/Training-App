@@ -22,6 +22,7 @@ export const DEFAULT_STRENGTH: StrengthSettings = {
   experience: 'intermediate',
   placement: 'hard_days',
   followPhaseCaps: true,
+  goal: 'build',
   includeMobility: true,
   mobility: { frequency: 'rest_days', minutes: 10, focus: [], roller: false, band: false },
 };

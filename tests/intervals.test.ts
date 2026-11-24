@@ -87,3 +87,14 @@ describe('strava merge', () => {
     expect(m.merged[1].tss).toBeGreaterThan(0);
   });
 });
+
+import { lastDay } from '../src/lib/intervals';
+describe('event end dates', () => {
+  it('treats intervals.icu end dates as exclusive (one-day workouts stay on one day)', () => {
+    expect(lastDay('2026-11-26T00:00:00', '2026-11-27T00:00:00')).toBeUndefined();
+    expect(lastDay('2026-11-26T00:00:00', '2026-11-26T00:00:00')).toBeUndefined();
+    expect(lastDay('2026-12-20T00:00:00', '2026-12-28T00:00:00')).toBe('2026-12-27');
+    expect(lastDay('2026-12-20T00:00:00', '2026-12-22T18:00:00')).toBe('2026-12-22');
+    expect(lastDay('2026-12-20T00:00:00', null)).toBeUndefined();
+  });
+});

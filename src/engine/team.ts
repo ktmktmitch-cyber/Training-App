@@ -76,6 +76,8 @@ export interface TeamRider {
   weeks: TeamWeek[];
   trend: TeamTrend[];
   recent_rides: TeamRide[];
+  /** published planned workouts and races (next 2 weeks) */
+  planned?: { date: ISODate; category: string; name: string; type: string; minutes: number | null; load: number | null }[];
   p5s: number | null;
   p1m: number | null;
   p3m: number | null;
@@ -119,6 +121,7 @@ export function parseTeamData(raw: unknown): TeamData {
     prs: arr<Record<string, unknown>>(x.prs).map((p) => ({ rider: str(p.rider), duration: str(p.duration), watts: num(p.watts) ?? 0, wkg: num(p.wkg), date: (p.date as string) ?? null, ride: (p.ride as string) ?? null })),
     weeks: arr<Record<string, unknown>>(x.weeks).map((w) => ({ week: str(w.week), hours: num(w.hours) ?? 0, miles: num(w.miles) ?? 0, rides: num(w.rides) ?? 0 })),
     trend: arr<Record<string, unknown>>(x.trend).map((t) => ({ date: str(t.date), fitness: num(t.fitness) ?? 0, fatigue: num(t.fatigue) ?? 0, form: num(t.form) ?? 0 })),
+    planned: arr<Record<string, unknown>>(x.planned).map((e) => ({ date: str(e.date), category: str(e.category), name: str(e.name), type: str(e.type), minutes: num(e.minutes), load: num(e.load) })),
     recent_rides: arr<Record<string, unknown>>(x.recent_rides).map((a) => ({
       start: str(a.start),
       date: str(a.date),

@@ -100,7 +100,7 @@ export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: Cale
   if (goalDate === date) return { ...base, status: 'race', race: { name: 'Goal event', durationMin: 180, priority: 'A' } };
   // A ride already on the intervals.icu calendar (coach, TrainerRoad, …) — not one this app sent
   const cal = evs.find((e) => e.category === 'WORKOUT' && (!e.type || CAL_TYPES.has(e.type)) && !(e.externalId ?? '').startsWith(`${EXTERNAL_PREFIX}-`) && e.date === date);
-  if (cal) {
+  if (cal && !user?.skipCalendar) {
     const coach = parseCoachId(cal.externalId);
     return { ...base, status: 'scheduled', scheduled: { name: cal.name, durationMin: cal.plannedSec ? Math.round(cal.plannedSec / 60) : 60, tss: cal.plannedTss ?? null, description: cal.description ?? null, type: cal.type ?? null, templateId: coach?.templateId ?? null, level: coach?.level ?? null, externalId: cal.externalId ?? null } };
   }
@@ -334,7 +334,7 @@ export function planWeek(input: PlanInput): WeekPlan {
         ifactor: Math.round(ifac * 100) / 100,
         blocks: [],
         purpose: sc.description?.trim() || 'Scheduled on your intervals.icu calendar.',
-        why: ['Already on your intervals.icu calendar (e.g. from your coach), so the rest of the week is planned around it. Pick another workout here to override it.'],
+        why: [(sc.externalId ?? '').startsWith('tacoach-') ? 'From your coach — the rest of the week is planned around it. Pick another workout here to override it.' : 'Already on your intervals.icu calendar (e.g. from your coach), so the rest of the week is planned around it. Pick another workout here to override it.'],
         fueling: '',
         key: ifac >= 0.82,
         fixed: 'calendar',
@@ -346,7 +346,12 @@ export function planWeek(input: PlanInput): WeekPlan {
     } else if (c.status === 'pinned' && c.pinned && WORKOUT_BY_ID[c.pinned.workoutId]) {
       const t = getTemplate(c.pinned.workoutId);
       const lvl = c.pinned.level ?? levelFor(t, ctx, c.pinned.durationMin);
-      const w = makeWorkout(t, c.pinned.durationMin, lvl, ctx, ['You picked this workout for this day.'], { fixed: 'pinned' });
+      const why = c.pinned.fromCoach
+        ? [`From your coach — you moved it here from ${dowLong(c.pinned.movedFrom ?? d)}. Targets use your own FTP and zones; the rest of the week is planned around it.`]
+        : c.pinned.movedFrom
+          ? [`Moved here from ${dowLong(c.pinned.movedFrom)} — the rest of the week is planned around it.`]
+          : ['You picked this workout for this day.'];
+      const w = makeWorkout(t, c.pinned.durationMin, lvl, ctx, why, { fixed: 'pinned' });
       ctx.rides[d] = w;
       ctx.locked.add(d);
       if (isHard(w)) fixedHard++;
