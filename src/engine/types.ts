@@ -132,6 +132,15 @@ export type EventType =
   | 'cx'
   | 'stage_race'
   | 'ultra'
+  | 'tri_sprint'
+  | 'tri_olympic'
+  | 'tri_70_3'
+  | 'tri_ironman'
+  | 'run_5k'
+  | 'run_10k'
+  | 'run_half'
+  | 'run_marathon'
+  | 'run_ultra'
   | 'fitness';
 
 export type PeriodizationModel = 'linear' | 'block' | 'reverse' | 'hrv_flex';

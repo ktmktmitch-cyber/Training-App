@@ -12,7 +12,8 @@
 //    swims (CSS + aerobic/technique) on easier days — always keeping your rest days.
 import { diffDays, dow, fmtMinutes } from './dates';
 import { instantiate } from './planner';
-import type { Activity, ISODate, MacroWeek, Phase, PlannedDay, PlannedWorkout, Readiness, SecondSession, SportMode, WeekPlan } from './types';
+import { eventProfile, longFraction, phaseGroup, type EventProfile } from './goals';
+import type { Activity, EventType, ISODate, MacroWeek, Phase, PlannedDay, PlannedWorkout, Readiness, SecondSession, SportMode, WeekPlan } from './types';
 import { projectLoad, round } from './stats';
 import { getTemplate } from './workouts';
 
@@ -26,9 +27,29 @@ export const SPORT_SHARE: Record<SportMode, { ride: number; run: number; swim: n
   triathlon: { ride: 0.5, run: 0.3, swim: 0.2 },
 };
 
+/** Share of weekly time by sport, tuned to the goal event's distance (e.g. Ironman = more bike). */
+export function shareFor(sport: SportMode, event?: EventType | null): { ride: number; run: number; swim: number } {
+  const ev = eventProfile(event);
+  return sport === 'triathlon' && ev?.share ? ev.share : SPORT_SHARE[sport];
+}
+
 /** Hours to hand to the bike planner (running-only plans are built from a full bike plan, then converted). */
-export function bikeHoursFor(sport: SportMode, hours: number): number {
-  return sport === 'running' || sport === 'cycling' ? hours : Math.max(1, hours * SPORT_SHARE[sport].ride);
+export function bikeHoursFor(sport: SportMode, hours: number, event?: EventType | null): number {
+  return sport === 'running' || sport === 'cycling' ? hours : Math.max(1, hours * shareFor(sport, event).ride);
+}
+
+/** The event's key run for this week (rotates through the distance's priority sessions). */
+function eventQualityRun(ev: EventProfile | null, mw: MacroWeek | null, n: number): string | null {
+  if (!ev?.runQuality) return null;
+  const list = ev.runQuality[phaseGroup(phaseOf(mw))];
+  return list[((mw?.index ?? 0) + n) % list.length];
+}
+
+/** Long-session target this week for the event: grows through the season toward the event's longest. */
+function eventLong(ev: EventProfile | null, key: 'longRun' | 'longRide' | 'longSwim', mw: MacroWeek | null): number | null {
+  const v = ev?.[key];
+  if (!v) return null;
+  return Math.round((v * longFraction(phaseOf(mw)) * (isEasyWeek(mw) && mw?.weekType === 'recovery' ? 0.75 : 1)) / 5) * 5;
 }
 
 export interface SportsInput {
@@ -41,6 +62,8 @@ export interface SportsInput {
   asOf: ISODate;
   weightKg: number | null;
   minRestDays: number;
+  /** the season goal's event type (distance-specific long sessions and key sessions) */
+  event?: EventType | null;
 }
 
 const isRun = (a: Activity) => /run/i.test(a.type) && !/ride/i.test(a.type);
@@ -115,17 +138,31 @@ function make(id: string, minutes: number, level: number, inp: SportsInput, why:
 const sessions = (d: PlannedDay) => (d.ride ? 1 : 0) + (d.extras?.length ?? 0);
 
 export function applySports(inp: SportsInput): WeekPlan {
-  if (inp.sport === 'cycling') return inp.plan;
+  if (inp.sport === 'cycling') {
+    const ev = eventProfile(inp.event);
+    return ev ? { ...inp.plan, warnings: [...inp.plan.warnings, `Your goal is a ${ev.label} but your sport is set to Cycling — pick ${ev.kind === 'tri' ? 'Triathlon' : 'Running (or Run + bike)'} under Sport so the plan adds the ${ev.kind === 'tri' ? 'swims, runs and bricks' : 'runs'} it needs.`] } : inp.plan;
+  }
   const days: PlannedDay[] = inp.plan.days.map((d) => ({ ...d, extras: [...(d.extras ?? [])], notes: [...d.notes] }));
   const summary = [...inp.plan.summary];
   const warnings = [...inp.plan.warnings];
   const red = inp.readiness.status === 'red';
-  const share = SPORT_SHARE[inp.sport];
+  const share = shareFor(inp.sport, inp.event);
+  const ev = eventProfile(inp.event);
 
   if (inp.sport === 'running') convertToRuns(days, inp, summary);
   else {
     if (share.run > 0) addRuns(days, inp, summary, warnings);
     if (share.swim > 0) addSwims(days, inp, summary);
+  }
+  if (ev && (ev.kind === 'run' ? inp.sport === 'running' || inp.sport === 'run_bike' : inp.sport === 'triathlon')) {
+    const parts = [
+      ev.longSwim ? `swim ${fmtMinutes(ev.longSwim)}` : '',
+      ev.longRide ? `ride ${fmtMinutes(ev.longRide)}` : '',
+      ev.longRun ? `run ${fmtMinutes(ev.longRun)}` : '',
+    ].filter(Boolean);
+    summary.push(`Goal: ${ev.label} (${ev.distance}) — longest sessions build toward ${parts.join(' · ')} by the peak phase.`);
+  } else if (ev && ev.kind === 'tri' && inp.sport !== 'triathlon') {
+    warnings.push(`Your goal is a ${ev.label} but your sport is set to ${SPORT_LABEL[inp.sport]} — set Sport to Triathlon in Settings to add swims, runs and bricks.`);
   }
   if (red) summary.push('Recovery markers are down: quality runs/swims are swapped for easy ones this week.');
 
@@ -153,6 +190,8 @@ export function applySports(inp: SportsInput): WeekPlan {
 
 function convertToRuns(days: PlannedDay[], inp: SportsInput, summary: string[]) {
   const mw = inp.macroWeek;
+  const ev = eventProfile(inp.event);
+  const evLong = eventLong(ev, 'longRun', mw);
   const { cap, note } = runCap(inp.activities, inp.asOf, Math.min(180, Math.max(90, inp.hours * 60 * 0.5)));
   const budget = Math.min(cap, inp.hours * 60);
   const rides = days.filter((d) => d.ride && !d.ride.fixed);
@@ -167,6 +206,10 @@ function convertToRuns(days: PlannedDay[], inp: SportsInput, summary: string[]) 
   for (const d of rides) {
     const r = d.ride!;
     let id = runForRide(r, d === longest && r.category === 'endurance', mw, alt++);
+    // Goal distance: its own key sessions and race-specific long runs
+    const evq = getTemplate(id).key && id !== 'run_long' ? eventQualityRun(ev, mw, quality) : null;
+    if (evq) id = evq;
+    if (id === 'run_long' && ev?.longRunSpecific && phaseGroup(phaseOf(mw)) === 'specific' && !isEasyWeek(mw) && (mw?.index ?? 0) % 2 === 0) id = ev.longRunSpecific;
     if (getTemplate(id).key && used.has(id) && VARIETY[id]) id = VARIETY[id];
     used.add(id);
     const t = getTemplate(id);
@@ -175,7 +218,7 @@ function convertToRuns(days: PlannedDay[], inp: SportsInput, summary: string[]) 
       if (quality > 2 || inp.readiness.status === 'red') id = 'run_strides';
     }
     let minutes = Math.min(Math.round(r.durationMin * 0.7), perRun);
-    if (id === 'run_long') minutes = Math.min(150, Math.max(50, Math.round(budget * 0.3)));
+    if (id === 'run_long' || id === ev?.longRunSpecific) minutes = evLong ? Math.min(evLong, Math.max(50, Math.round(budget * 0.4))) : Math.min(150, Math.max(50, Math.round(budget * 0.3)));
     d.ride = make(id, minutes, runLevel(id, mw, inp.readiness), inp, [`Your ${r.name.toLowerCase()} slot in the plan, as a run.`]);
   }
   // Fit the week under the running cap: shrink easy runs first, then everything proportionally
@@ -251,8 +294,10 @@ function addRuns(days: PlannedDay[], inp: SportsInput, summary: string[], warnin
   const p = phaseOf(mw);
   const easyWeek = isEasyWeek(mw);
   const tri = inp.sport === 'triathlon';
+  const ev = eventProfile(inp.event);
+  const runShare = shareFor(inp.sport, inp.event).run;
   const { cap, note } = runCap(inp.activities, inp.asOf, tri ? 100 : 90);
-  let budget = Math.min(cap, inp.hours * 60 * SPORT_SHARE[inp.sport].run * (easyWeek ? 0.7 : 1));
+  let budget = Math.min(cap, inp.hours * 60 * runShare * (easyWeek ? 0.7 : 1));
   const startBudget = budget;
   const count = budget < 90 ? 2 : budget < 160 ? 3 : 4;
   const placed: string[] = [];
@@ -260,14 +305,15 @@ function addRuns(days: PlannedDay[], inp: SportsInput, summary: string[], warnin
   const longRide = days.reduce<PlannedDay | null>((a, d) => (d.ride && d.ride.category !== 'race' && (!a || d.ride.durationMin > (a.ride?.durationMin ?? 0)) ? d : a), null);
 
   // 1. Long run — the other weekend day from the long ride if possible
-  const longMin = Math.round(Math.min(tri ? 120 : 105, Math.max(40, budget * 0.38)));
+  const evLong = eventLong(ev, 'longRun', mw);
+  const longMin = Math.round(evLong ? Math.min(evLong, Math.max(40, budget * 0.45)) : Math.min(tri ? 120 : 105, Math.max(40, budget * 0.38)));
   const longDay = pick(
     days,
     (d) => d !== longRide && keepRest(d),
     (d) => scoreDay(d, days, false) + ([0, 6].includes(dow(d.date)) ? 25 : 0) + (longRide && Math.abs(diffDays(d.date, longRide.date)) === 1 ? 10 : 0),
   );
   if (longDay && budget >= 40) {
-    const w = make('run_long', longMin, 0, inp, ['Long run — kept away from your long ride so both get quality.']);
+    const w = make('run_long', longMin, 0, inp, [evLong ? `Long run — building toward ${fmtMinutes(ev!.longRun!)} for your ${ev!.label}; kept away from your long ride so both get quality.` : 'Long run — kept away from your long ride so both get quality.']);
     longDay.extras!.push(w);
     budget -= w.durationMin;
     placed.push(`long ${fmtMinutes(w.durationMin)} ${fmtDow(longDay.date)}`);
@@ -275,7 +321,7 @@ function addRuns(days: PlannedDay[], inp: SportsInput, summary: string[], warnin
 
   // 2. Quality run — away from hard rides and the long run
   if (placed.length < count && budget >= 35) {
-    let id = easyWeek ? 'run_strides' : specific(p) ? 'run_racepace' : lateBuild(p) ? ((mw?.index ?? 0) % 2 ? 'run_vo2' : 'run_threshold') : (mw?.index ?? 0) % 2 ? 'run_hills' : 'run_tempo';
+    let id = easyWeek ? 'run_strides' : eventQualityRun(ev, mw, 0) ?? (specific(p) ? 'run_racepace' : lateBuild(p) ? ((mw?.index ?? 0) % 2 ? 'run_vo2' : 'run_threshold') : (mw?.index ?? 0) % 2 ? 'run_hills' : 'run_tempo');
     if (inp.readiness.status === 'red') id = 'run_easy';
     const qDay = pick(
       days,
@@ -295,7 +341,8 @@ function addRuns(days: PlannedDay[], inp: SportsInput, summary: string[], warnin
   if (tri && !easyWeek && (lateBuild(p) || specific(p)) && placed.length < count && budget >= 15) {
     const brickDay = days.find((d) => d.ride && d.ride.key && !(d.extras ?? []).some((x) => x.sport === 'run')) ?? (longRide && !(longRide.extras ?? []).some((x) => x.sport === 'run') ? longRide : null);
     if (brickDay) {
-      const w = make('run_brick', Math.min(25, Math.max(15, budget)), 0, inp, ['Straight off the bike — practise the transition and running on tired legs.']);
+      const bl = ev?.brick ? Math.round((ev.brick * (specific(p) ? 1 : 0.7)) / 5) * 5 : 25;
+      const w = make('run_brick', Math.min(bl, Math.max(15, budget)), 0, inp, [ev?.brick ? `Straight off the bike — practise the transition and your ${ev.label} run pace on tired legs.` : 'Straight off the bike — practise the transition and running on tired legs.']);
       brickDay.extras!.push(w);
       budget -= w.durationMin;
       placed.push(`brick ${fmtDow(brickDay.date)}`);
@@ -321,19 +368,23 @@ function addRuns(days: PlannedDay[], inp: SportsInput, summary: string[], warnin
   const used = Math.round(startBudget - budget);
   summary.push(`Running: ${placed.length} runs · ${fmtMinutes(used)} (${placed.join(', ')}).`);
   if (note) summary.push(note);
-  if (cap < inp.hours * 60 * SPORT_SHARE[inp.sport].run) warnings.push(`Running time is capped at ${fmtMinutes(cap)} this week (≈15% above your recent running) to keep injury risk down — the rest goes to the bike.`);
+  if (cap < inp.hours * 60 * runShare) warnings.push(`Running time is capped at ${fmtMinutes(cap)} this week (≈15% above your recent running) to keep injury risk down — the rest goes to the bike.`);
 }
 
 function addSwims(days: PlannedDay[], inp: SportsInput, summary: string[]) {
   const mw = inp.macroWeek;
   const p = phaseOf(mw);
   const easyWeek = isEasyWeek(mw);
-  let budget = inp.hours * 60 * SPORT_SHARE.triathlon.swim * (easyWeek ? 0.7 : 1);
+  const ev = eventProfile(inp.event);
+  let budget = inp.hours * 60 * shareFor('triathlon', inp.event).swim * (easyWeek ? 0.7 : 1);
+  const evSwim = eventLong(ev, 'longSwim', mw);
   const n = budget < 90 ? 2 : 3;
   const ids: string[] = [easyWeek || inp.readiness.status === 'red' ? 'swim_endurance' : 'swim_css', 'swim_technique'];
   if (n === 3) ids.push(specific(p) ? 'swim_openwater' : lateBuild(p) ? 'swim_threshold' : 'swim_endurance');
   const placed: string[] = [];
   const per = Math.max(30, Math.min(60, Math.round(budget / n)));
+  // The goal's long swim (continuous, toward race distance) takes the aerobic slot
+  const longId = ids.includes('swim_openwater') ? 'swim_openwater' : ids.includes('swim_endurance') ? 'swim_endurance' : null;
   for (const id of ids as string[]) {
     if (budget < 25) break;
     const d = pick(
@@ -342,7 +393,8 @@ function addSwims(days: PlannedDay[], inp: SportsInput, summary: string[]) {
       (x) => scoreDay(x, days, false) - (x.extras?.length ?? 0) * 8 + (id === 'swim_css' && isHardRide(x.ride) ? -15 : 0) + (!x.ride ? 4 : 0),
     );
     if (!d) break;
-    const w = make(id, Math.min(per, budget), runLevel(id, mw, inp.readiness), inp, [id === 'swim_css' ? 'Key swim: CSS repeats.' : 'Swim technique and aerobic base — low impact, fine on easier days.']);
+    const len = id === longId && evSwim ? Math.max(per, evSwim) : per;
+    const w = make(id, Math.min(len, budget), runLevel(id, mw, inp.readiness), inp, [id === 'swim_css' ? 'Key swim: CSS repeats.' : id === longId && evSwim ? `Long continuous swim — building toward your ${ev!.label} swim (${ev!.distance.split(' · ')[0]}).` : 'Swim technique and aerobic base — low impact, fine on easier days.']);
     d.extras!.push(w);
     budget -= w.durationMin;
     placed.push(`${w.name.toLowerCase()} ${fmtDow(d.date)}`);

@@ -9,6 +9,7 @@
 //  * Long ride on the day with the most time (default weekend), progressed gradually.
 //  * At least one full rest day; days after hard days are recovery/easy.
 //  * Respect the CTL ramp-rate limit; readiness can trim volume and delay intensity.
+import { eventProfile } from './goals';
 import { addDays, diffDays, dow, dowLong, dowShort, fmtMinutes, range } from './dates';
 import { fuelingFor } from './fueling';
 import { EXTERNAL_PREFIX } from './icuExport';
@@ -356,17 +357,22 @@ export function planWeek(input: PlanInput): WeekPlan {
       ctx.locked.add(d);
       if (isHard(w)) fixedHard++;
     } else if (c.status === 'race' && c.race) {
-      const ifac = raceIf(c.race.durationMin);
+      const isGoal = d === macro.goalDate && c.race.name === 'Goal event';
+      const ev = isGoal || c.race.priority === 'A' ? eventProfile(goal.eventType) : null;
+      if (isGoal) ctx.cfg[d] = { ...c, race: { ...c.race, name: goal.eventName || ev?.label || 'Goal event', durationMin: Math.round((goal.eventDurationHours || 3) * 60) } };
+      const race = ctx.cfg[d].race!;
+      const ifac = raceIf(race.durationMin);
       const w: PlannedWorkout = {
         templateId: 'race',
-        name: `${c.race.priority} race: ${c.race.name}`,
+        ...(ev?.kind === 'run' ? { sport: 'run' as const } : {}),
+        name: `${race.priority} race: ${race.name}${ev && ev.kind !== 'bike' && !race.name.toLowerCase().includes(ev.label.toLowerCase()) ? ` (${ev.label})` : ''}`,
         category: 'race',
         intensity: 'hard',
-        durationMin: c.race.durationMin,
-        tss: tssFromIf(c.race.durationMin, ifac),
+        durationMin: race.durationMin,
+        tss: tssFromIf(race.durationMin, ifac),
         ifactor: ifac,
         blocks: [],
-        purpose: c.race.priority === 'A' ? 'Goal event. Trust the taper, pace and fuel to plan.' : c.race.priority === 'B' ? 'B race — race it, with a short mini-taper.' : 'C race — a hard training day with a number on.',
+        purpose: race.priority === 'A' ? 'Goal event. Trust the taper, pace and fuel to plan.' : race.priority === 'B' ? 'B race — race it, with a short mini-taper.' : 'C race — a hard training day with a number on.',
         why: [],
         fueling: '',
         key: true,
