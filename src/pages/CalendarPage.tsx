@@ -113,7 +113,8 @@ export function CalendarPage() {
       .catch(() => {
         if (gone) return;
         const acts: Activity[] = rider.recent_rides.map((x, i) => ({ id: `t${i}`, date: x.date, startTime: x.start, name: x.name, type: x.type || 'Ride', isRide: /ride/i.test(x.type || 'Ride'), isStrength: /weight/i.test(x.type), movingSec: Math.round(x.hours * 3600), distanceM: x.miles != null ? x.miles * 1609.34 : null, tss: x.load, intensity: null, normalizedPower: x.np, avgHr: null, powerZoneSecs: null, hrZoneSecs: null, source: 'intervals' }));
-        setOther({ id: who, activities: acts, events: [], plan: null, limited: true, months: [] });
+        const planned: CalendarEvent[] = (rider.planned ?? []).map((e, i) => ({ id: `tp${i}`, date: e.date, category: e.category, name: e.name, type: e.type || undefined, plannedSec: e.minutes ? e.minutes * 60 : null, plannedTss: e.load }));
+        setOther({ id: who, activities: acts, events: planned, plan: null, limited: true, months: [] });
       })
       .finally(() => !gone && setLoading(false));
     return () => {
@@ -185,7 +186,7 @@ export function CalendarPage() {
       {loading && <div className="callout">Loading {label} from intervals.icu…</div>}
       {viewingOther && other!.limited && (
         <div className="callout">
-          Showing {rider?.rider}’s recent rides from the team data. Their full history, planned workouts and time off show here once they add you as a coach on intervals.icu.
+          Showing {rider?.rider}’s recent rides and planned workouts (next 2 weeks) from the team data. Their full history shows here once they add you as a coach on intervals.icu.
         </div>
       )}
 
