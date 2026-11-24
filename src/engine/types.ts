@@ -146,6 +146,7 @@ export interface GoalSettings {
   planStart: ISODate | null; // null = from this week
   useCalendarRaces: boolean; // read RACE_A/B/C from intervals.icu
   restWeeks?: ISODate[]; // Mondays of weeks you chose to make rest weeks
+  awayWeeks?: ISODate[]; // Mondays of weeks you can't train at all (travel, vacation)
   races?: PlannedRace[]; // races you added in the app
 }
 
@@ -336,6 +337,7 @@ export interface MacroWeek {
   races: CalendarEvent[];
   estTssPerHour: number;
   userRest?: boolean; // a rest week you chose (vs one the plan scheduled)
+  userAway?: boolean; // a week you can't train at all
 }
 
 export interface MacroPlan {

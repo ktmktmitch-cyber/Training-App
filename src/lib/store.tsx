@@ -11,7 +11,7 @@ import { estimateVo2, type Vo2Estimate } from '../engine/vo2max';
 import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
 import { trainingStatus, type TrainingStatus } from '../engine/status';
-import { buildMacroPlan, macroWeekFor, withAppRaces } from '../engine/periodization';
+import { buildMacroPlan, macroWeekFor, withAppRaces, withAwayWeeks } from '../engine/periodization';
 import { planWeek } from '../engine/planner';
 import { targetsLabel, type ExportTargets } from '../engine/targets';
 import { assessReadiness } from '../engine/readiness';
@@ -426,7 +426,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [profile, ftp],
   );
 
-  const events = useMemo(() => withAppRaces(data.events, settings.goal.races), [data.events, settings.goal.races]);
+  const events = useMemo(() => withAwayWeeks(withAppRaces(data.events, settings.goal.races), settings.goal.awayWeeks), [data.events, settings.goal.races, settings.goal.awayWeeks]);
   const macro = useMemo(() => buildMacroPlan(settings.goal, events, asOf), [settings.goal, events, asOf]);
   const readiness = useMemo(
     () => assessReadiness(data.wellness, asOf, { checkIn: effectiveCheckIn, model: settings.goal.model, effects }),

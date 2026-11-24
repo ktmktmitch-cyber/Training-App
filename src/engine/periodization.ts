@@ -249,6 +249,16 @@ function strengthPhaseFor(phase: Phase, weekType: WeekType, weekInPhase: number,
 export const APP_RACE_PREFIX = 'race-';
 export const isAppRace = (e: CalendarEvent) => e.id.startsWith(APP_RACE_PREFIX);
 
+/** Weeks you can't train, as holiday days on the calendar (the planner leaves them empty). */
+export function withAwayWeeks(events: CalendarEvent[], awayWeeks: ISODate[] = []): CalendarEvent[] {
+  if (!awayWeeks.length) return events;
+  const extra = awayWeeks.map<CalendarEvent>((d) => {
+    const m = mondayOf(d);
+    return { id: `away-${m}`, date: m, endDate: addDays(m, 6), category: 'HOLIDAY', name: 'Away — no training' };
+  });
+  return [...events, ...extra];
+}
+
 /** Races you added in the app, as calendar events (skipping any already on your intervals.icu calendar that day). */
 export function withAppRaces(events: CalendarEvent[], races: PlannedRace[] = []): CalendarEvent[] {
   const extra = races
@@ -387,7 +397,7 @@ export function buildMacroPlan(goal: GoalSettings, events: CalendarEvent[], asOf
     }
   });
 
-  applyRestWeeks(weeks, goal.restWeeks ?? [], cycleLen, segs[0]?.phase ?? null);
+  applyRestWeeks(weeks, [...(goal.restWeeks ?? []), ...(goal.awayWeeks ?? [])], cycleLen, segs[0]?.phase ?? null, goal.awayWeeks ?? []);
   return { weeks, goalDate, taperDays, summary };
 }
 
@@ -403,10 +413,30 @@ export function canChooseRest(w: MacroWeek): boolean {
  * next recovery week moves to a full cycle after it (no two easy weeks close together, and
  * no over-long loading run), until the schedule lines up with the plan again.
  */
-export function applyRestWeeks(weeks: MacroWeek[], restWeeks: ISODate[], cycleLen: number, firstPhase: Phase | null): void {
+export function applyRestWeeks(weeks: MacroWeek[], restWeeks: ISODate[], cycleLen: number, firstPhase: Phase | null, awayWeeks: ISODate[] = []): void {
   const chosen = new Set(restWeeks.map((d) => mondayOf(d)));
+  const away = new Set(awayWeeks.map((d) => mondayOf(d)));
   if (!chosen.size) return;
   const maxLoad = Math.max(1, cycleLen - 1);
+  // A scheduled recovery week right before one of your rest/away weeks is redundant: make it a
+  // loading week instead (unless that would stretch the loading run too far)
+  for (let i = 1; i < weeks.length; i++) {
+    const prev = weeks[i - 1];
+    if (!chosen.has(weeks[i].start) || chosen.has(prev.start) || prev.weekType !== 'recovery' || !RESTABLE.includes(prev.phase)) continue;
+    let run = 0;
+    for (let j = i - 2; j >= 0 && weeks[j].weekType === 'load' && !chosen.has(weeks[j].start); j--) run++;
+    if (run + 1 > maxLoad + 1) continue;
+    const arr = VOLUME[prev.phase] ?? [0.9];
+    weeks[i - 1] = {
+      ...prev,
+      weekType: 'load',
+      loadStep: run + 1,
+      volumeFactor: arr[Math.min(arr.length - 1, run)],
+      estTssPerHour: TSS_PER_HOUR[prev.phase],
+      strengthPhase: strengthPhaseFor(prev.phase, 'load', prev.weekInPhase, prev.phaseWeeks, prev.phase === firstPhase),
+      focus: `${FOCUS[prev.phase]} (recovery moved to your week off next week)`,
+    };
+  }
   for (let i = 0; i < weeks.length; i++) {
     const w = weeks[i];
     if (!chosen.has(w.start) || !RESTABLE.includes(w.phase) || w.races.some((r) => r.category === 'RACE_A')) continue;
@@ -420,6 +450,7 @@ export function applyRestWeeks(weeks: MacroWeek[], restWeeks: ISODate[], cycleLe
       userRest: true,
       focus: 'Rest week (your choice) — ~40% less volume, easy riding only, no hard sessions',
     };
+    if (away.has(w.start)) weeks[i] = { ...weeks[i], userAway: true, volumeFactor: 0, estTssPerHour: 0, focus: 'Away — no training planned this week. Expect to come back a little fresher and a little less fit.' };
     // Restart the loading cycle after it: load, load, …, recovery, until it lines up with the
     // plan again (or hits a HIT block, peak/taper, or another rest week you chose)
     for (let j = i + 1, pos = 1; j < weeks.length; j++, pos++) {

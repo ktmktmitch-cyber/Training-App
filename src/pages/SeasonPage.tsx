@@ -6,6 +6,7 @@ import { LineChart } from '../components/charts';
 import { Field, Seg } from '../components/ui';
 import { toggleRestWeek } from '../lib/restWeeks';
 import { RacesCard } from '../components/RacesCard';
+import { WeeksOffCard } from '../components/WeeksOffCard';
 import { useApp } from '../lib/store';
 
 const MODELS: { id: PeriodizationModel; name: string; desc: string }[] = [
@@ -62,6 +63,7 @@ export function SeasonPage() {
     <>
       <h1>Season plan</h1>
       <RacesCard />
+      <WeeksOffCard />
       <div className="card stack-lg">
         <h2>Goal</h2>
         <div className="grid-3">
@@ -147,13 +149,16 @@ export function SeasonPage() {
         </div>
         <div className="tl-scroll">
         <div style={{ minWidth: weeks.length * 16 }}>
-        <div className="timeline" role="img" aria-label="Weekly volume by phase">
+        <div className="timeline" aria-label="Weekly volume by phase — tap a week to make it a rest week">
           {weeks.map((w) => (
-            <div
+            <button
               key={w.start}
-              className={`tl-week ${w.start === currentMonday ? 'current' : ''}`}
-              title={`${fmtShort(w.start)} · ${PHASE_LABELS[w.phase]} ${w.weekType !== 'load' ? `(${w.weekType})` : ''} · ${Math.round(w.volumeFactor * 100)}% volume`}
-              style={{ height: `${Math.round(w.volumeFactor * 100)}%`, background: PHASE_COLOR[w.phase], opacity: w.weekType === 'recovery' ? 0.45 : 1 }}
+              className={`tl-week ${w.start === currentMonday ? 'current' : ''} ${w.userRest ? 'mine' : ''}`}
+              title={`${fmtShort(w.start)} · ${PHASE_LABELS[w.phase]} ${w.userAway ? '(away)' : w.userRest ? '(your rest week)' : w.weekType !== 'load' ? `(${w.weekType})` : ''} · ${Math.round(w.volumeFactor * 100)}% volume${canChooseRest(w) ? ' — tap to ' + (w.userRest ? 'undo' : 'make it a rest week') : ''}`}
+              aria-label={`Week of ${fmtShort(w.start)}, ${w.userAway ? 'away' : w.userRest ? 'your rest week' : w.weekType}`}
+              disabled={!canChooseRest(w)}
+              onClick={() => toggleRestWeek(app, w.start)}
+              style={{ height: `${Math.max(4, Math.round(w.volumeFactor * 100))}%`, background: PHASE_COLOR[w.phase], opacity: w.weekType === 'recovery' ? 0.45 : 1 }}
             />
           ))}
         </div>
@@ -227,7 +232,7 @@ export function SeasonPage() {
                   </td>
                   <td>
                     <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                      {w.userRest ? 'rest (yours)' : w.weekType === 'hit_block' ? 'HIT block' : w.weekType}
+                      {w.userAway ? 'away' : w.userRest ? 'rest (yours)' : w.weekType === 'hit_block' ? 'HIT block' : w.weekType}
                       {canChooseRest(w) && (
                         <button className="btn sm ghost" onClick={() => toggleRestWeek(app, w.start)} title={w.userRest ? 'Undo this rest week' : 'Make this a rest week (the loading cycle restarts after it)'}>
                           {w.userRest ? 'Undo' : 'Rest'}

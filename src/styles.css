@@ -1422,3 +1422,13 @@ tr.me .sticky-col {
   .cal-item { font-size: 9.5px; padding: 0 2px; border-left-width: 2px; }
   .cal-item .muted { display: none; }
 }
+
+/* Clickable timeline weeks & weeks-off list */
+button.tl-week { border: 0; padding: 0; cursor: pointer; font: inherit; }
+button.tl-week:disabled { cursor: default; }
+button.tl-week:not(:disabled):hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tl-week.mine { background-image: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--surface) 55%, transparent) 3px 5px) !important; }
+.weeks-off { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.weeks-off li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.weeks-off li:last-child { border-bottom: 0; }
