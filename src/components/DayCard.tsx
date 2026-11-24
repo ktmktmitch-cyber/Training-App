@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
-import { dowShort, fmtMinutes, fromISO } from '../engine/dates';
-import type { AthleteProfile, Block, GroupIntensity, PlannedDay, TargetMode } from '../engine/types';
+import { dowLong, dowShort, fmtMinutes, fromISO } from '../engine/dates';
+import type { AthleteProfile, Block, GroupIntensity, ISODate, PlannedDay, TargetMode } from '../engine/types';
 import { parseCoachId, workoutAlternatives } from '../engine/planner';
 import { DIFFICULTY_LABEL, type Difficulty, type Progression } from '../engine/progression';
 import { paceLabel, type Sport } from '../engine/runswim';
@@ -140,6 +140,11 @@ export function DayCard(props: {
   onGroup: (g: { name?: string; durationMin: number; intensity: GroupIntensity }) => void;
   groupCfg?: { name?: string; durationMin: number; intensity: GroupIntensity } | null;
   onToast?: (msg: string) => void;
+  /** other days of this week you can move this workout to */
+  moveTargets?: { date: ISODate; label: string }[];
+  onMove?: (to: ISODate) => void;
+  /** you moved your coach's workout from this day to another */
+  movedTo?: ISODate | null;
 }) {
   const { day, ftp, profile, mode, isToday, customized } = props;
   const [open, setOpen] = useState(false);
@@ -158,6 +163,8 @@ export function DayCard(props: {
   const hasRec = r?.fixed === 'calendar' && day.recommended !== undefined;
   const rec = hasRec ? day.recommended : null;
   const off = day.status === 'off';
+  const fromCoach = !!r?.why[0]?.startsWith('From your coach');
+  const [moveTo, setMoveTo] = useState<ISODate>('');
   const title = r ? r.name : extras[0] ? extras[0].name : off ? 'Unavailable' : 'Rest day';
   const allMin = (r?.durationMin ?? 0) + extras.reduce((a, x) => a + x.durationMin, 0);
   const allTss = (r?.tss ?? 0) + extras.reduce((a, x) => a + x.tss, 0);
@@ -177,8 +184,14 @@ export function DayCard(props: {
             {r && r.key && <DifficultyChip difficulty={r.progression?.difficulty} />}
             {day.strength && <span className="chip">🏋 {day.strength.title}</span>}
             {r?.fixed === 'group' && <span className="chip">Your group ride</span>}
-            {r?.fixed === 'pinned' && <span className="chip">Your pick</span>}
-            {r?.fixed === 'calendar' && <span className="chip">{day.ride?.why[0]?.startsWith('From your coach') ? 'From your coach' : 'On your calendar'}</span>}
+            {r?.fixed === 'pinned' && !fromCoach && <span className="chip">{r.why[0]?.startsWith('Moved here') ? 'Moved' : 'Your pick'}</span>}
+            {fromCoach && (
+              <span className="chip coach-chip">
+                <span className="coach-dot" />
+                From your coach
+              </span>
+            )}
+            {r?.fixed === 'calendar' && !fromCoach && <span className="chip">On your calendar</span>}
             {day.mobility && <span className="chip">Mobility {day.mobility.minutes}′</span>}
             {r && (r.sport ?? 'ride') !== 'ride' && <span className="chip">{SPORT_NAME[r.sport!]}</span>}
             {extras.map((x, i) => (
@@ -188,6 +201,12 @@ export function DayCard(props: {
               </span>
             ))}
           </div>
+          {fromCoach && (
+            <div className="tiny coach-note">
+              Scheduled by your coach{r?.why[0]?.match(/moved it here from (\w+)/) ? ` — you moved it here from ${r.why[0].match(/moved it here from (\w+)/)![1]}` : ''}. You can still make it easier, swap it or move it to another day.
+            </div>
+          )}
+          {props.movedTo && <div className="tiny muted">You moved your coach’s workout to {dowLong(props.movedTo)}.</div>}
           {r && r.blocks.length > 0 && <Skyline blocks={r.blocks} />}
         </div>
         <div className="day-right">
@@ -247,7 +266,7 @@ export function DayCard(props: {
               )}
             </div>
           )}
-          {coachEv && coachTpl && (
+          {coachEv && coachTpl && !props.movedTo && (
             <div className="callout row" style={{ alignItems: 'center' }}>
               <span className="small">
                 <b>Your coach planned:</b> {coachEv.name.replace(/^Coach’s plan: /, '').replace(/ \(you changed this day\)$/, '')}
@@ -426,10 +445,29 @@ export function DayCard(props: {
             </button>
           </div>
           </details>
-          <div className="row">
+          <div className="row" style={{ alignItems: 'flex-end' }}>
             <button className="btn sm ghost" onClick={props.onRest}>
               Can’t train
             </button>
+            {r && WORKOUT_BY_ID[r.templateId] && props.onMove && (props.moveTargets?.length ?? 0) > 0 && (
+              <>
+                <span className="spacer" />
+                <label className="field" style={{ flex: '0 1 170px' }}>
+                  <span>Move to another day</span>
+                  <select className="select" value={moveTo} onChange={(e) => setMoveTo(e.target.value)} aria-label="Move to day">
+                    <option value="">Pick a day…</option>
+                    {props.moveTargets!.map((t) => (
+                      <option key={t.date} value={t.date}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="btn sm" disabled={!moveTo} onClick={() => { props.onMove!(moveTo); setMoveTo(''); }}>
+                  Move
+                </button>
+              </>
+            )}
           </div>
           {r && r.blocks.length > 0 && <ExportBar workout={r} date={day.date} onDone={props.onToast} />}
         </div>

@@ -35,14 +35,18 @@ export function WeekDropStrip({ armed, onPlaced }: { armed: DragWorkout | null; 
     onPlaced(`${t.name} on ${fromISO(date).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })} — the rest of that week re-plans around it.`);
   };
 
-  const label = (d: ISODate): { text: string; mine: boolean } => {
+  const label = (d: ISODate): { text: string; mine: boolean; coach?: boolean } => {
     const s = app.scheduled[d];
     if (s) return { text: `${WORKOUT_BY_ID[s.workoutId]?.name ?? 'Workout'} · ${fmtMinutes(s.durationMin)}`, mine: true };
     const p = planned[d];
-    if (!p) return { text: '', mine: false };
+    if (!p) {
+      // Beyond this week's plan: still show what's on your intervals.icu calendar (coach workouts etc.)
+      const ev = app.events.find((e) => e.date === d && e.category === 'WORKOUT' && !(e.externalId ?? '').startsWith('trainingapp-'));
+      return ev ? { text: `${ev.name}${ev.plannedSec ? ` · ${fmtMinutes(Math.round(ev.plannedSec / 60))}` : ''}`, mine: false, coach: (ev.externalId ?? '').startsWith('tacoach-') } : { text: '', mine: false };
+    }
     const ws = [p.ride, ...(p.extras ?? [])].filter(Boolean);
     if (p.status === 'off') return { text: 'Unavailable', mine: false };
-    return { text: ws.length ? ws.map((w) => w!.name).join(' + ') : 'Rest', mine: false };
+    return { text: ws.length ? ws.map((w) => w!.name).join(' + ') : 'Rest', mine: false, coach: !!p.ride?.why[0]?.startsWith('From your coach') };
   };
 
   return (
@@ -61,8 +65,8 @@ export function WeekDropStrip({ armed, onPlaced }: { armed: DragWorkout | null; 
               key={d}
               role="button"
               tabIndex={0}
-              className={`drop-day ${over === d ? 'over' : ''} ${l.mine ? 'mine' : ''} ${armed ? 'armed' : ''} ${d === app.asOf ? 'today' : ''}`}
-              aria-label={`${fromISO(d).toDateString()}: ${l.text || 'nothing planned'}${armed ? ' — tap to place the open workout here' : ''}`}
+              className={`drop-day ${over === d ? 'over' : ''} ${l.mine ? 'mine' : ''} ${l.coach ? 'coach' : ''} ${armed ? 'armed' : ''} ${d === app.asOf ? 'today' : ''}`}
+              aria-label={`${fromISO(d).toDateString()}: ${l.coach ? 'from your coach: ' : ''}${l.text || 'nothing planned'}${armed ? ' — tap to place the open workout here' : ''}`}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes(DRAG_TYPE)) {
                   e.preventDefault();
@@ -86,7 +90,10 @@ export function WeekDropStrip({ armed, onPlaced }: { armed: DragWorkout | null; 
               <span className="drop-dow">
                 {dowShort(d)} {fromISO(d).getDate()}
               </span>
-              <span className="drop-name">{l.text || '—'}</span>
+              <span className="drop-name">
+                {l.coach && <span className="coach-dot" title="Scheduled by your coach" />}
+                {l.text || '—'}
+              </span>
               {l.mine && (
                 <button
                   className="drop-clear"

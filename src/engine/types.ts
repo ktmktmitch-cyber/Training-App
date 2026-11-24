@@ -169,12 +169,16 @@ export type Equipment = 'gym' | 'barbell' | 'dumbbell' | 'bodyweight';
 export type Experience = 'new' | 'intermediate' | 'advanced';
 export type LiftPlacement = 'hard_days' | 'easy_days' | 'any';
 
+export type StrengthGoal = 'build' | 'maintain';
+
 export interface StrengthSettings {
   frequency: 0 | 1 | 2 | 3;
   equipment: Equipment;
   experience: Experience;
   placement: LiftPlacement;
   followPhaseCaps: boolean; // let the planner cap frequency in peak/taper
+  /** build strength (progressive heavy blocks) or maintain it (1-2 short heavy sessions, fewer sets) — default build */
+  goal?: StrengthGoal;
   includeMobility: boolean;
   mobility?: MobilityPrefs;
 }
@@ -194,7 +198,9 @@ export interface DayConfig {
   status: DayStatus;
   maxMinutes: number | null; // null = no explicit cap
   group?: { durationMin: number; intensity: GroupIntensity; name?: string };
-  pinned?: { workoutId: string; durationMin: number; level?: number };
+  pinned?: { workoutId: string; durationMin: number; level?: number; movedFrom?: ISODate; fromCoach?: boolean };
+  /** ignore the workout on your intervals.icu calendar for this day (you moved it to another day) */
+  skipCalendar?: boolean;
   race?: { name: string; durationMin: number; priority: 'A' | 'B' | 'C' };
   /** a workout already on your intervals.icu calendar (from a coach, TrainerRoad, etc.) */
   scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null; templateId?: string | null; level?: number | null; externalId?: string | null };

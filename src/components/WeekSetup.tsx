@@ -2,11 +2,13 @@ import { addDays, dowShort, fmtMinutes, fromISO, range } from '../engine/dates';
 import type { DayConfig, DayStatus, GroupIntensity, ISODate, WeekConfig } from '../engine/types';
 import { WORKOUTS } from '../engine/workouts';
 import { SecondSessionSelect } from './SecondSessionSelect';
+import { useApp } from '../lib/store';
 import { Seg } from './ui';
 
 const CAPS = [null, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300, 360];
 
 export function WeekSetup({ week, onChange, onSaveUsual, onResetUsual }: { week: WeekConfig; onChange: (w: WeekConfig) => void; onSaveUsual: () => void; onResetUsual: () => void }) {
+  const app = useApp();
   const days = range(week.startDate, 7);
   const get = (d: ISODate): DayConfig => week.days[d] ?? { status: 'available', maxMinutes: null };
   const set = (d: ISODate, patch: Partial<DayConfig>) => onChange({ ...week, days: { ...week.days, [d]: { ...get(d), ...patch } } });
@@ -54,6 +56,22 @@ export function WeekSetup({ week, onChange, onSaveUsual, onResetUsual }: { week:
             <div className="setup-day" key={d}>
               <div className="label">
                 {dowShort(d)} {fromISO(d).getDate()}
+                {(() => {
+                  const ev = c.status === 'available' && !c.skipCalendar ? app.events.find((e) => e.date === d && e.category === 'WORKOUT' && !(e.externalId ?? '').startsWith('trainingapp-')) : undefined;
+                  const moved = Object.entries(week.days).find(([, x]) => x.status === 'pinned' && x.pinned?.fromCoach && x.pinned.movedFrom === d);
+                  const tag = ev ? ((ev.externalId ?? '').startsWith('tacoach-') ? 'From your coach' : 'On your calendar') : c.status === 'pinned' && c.pinned?.fromCoach ? 'From your coach (moved here)' : null;
+                  return tag || moved ? (
+                    <div className="tiny" style={{ fontWeight: 400 }}>
+                      {tag && (
+                        <span className={tag.startsWith('From your coach') ? 'coach-note' : 'muted'} style={{ display: 'inline-block' }}>
+                          {tag}
+                          {ev ? `: ${ev.name}` : ''}
+                        </span>
+                      )}
+                      {moved && <span className="muted">Coach’s workout moved to {dowShort(moved[0])}</span>}
+                    </div>
+                  ) : null;
+                })()}
               </div>
               <div className="controls">
                 <Seg<DayStatus>

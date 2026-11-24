@@ -199,65 +199,6 @@ export function TeamPage() {
       )}
       {toast}
 
-      {isCoach && (
-        <CoachReadinessTable
-          riders={ok}
-          metrics={t.metrics}
-          deep={t.deep}
-          asOf={app.asOf}
-          onOpen={open}
-          loading={t.deepProgress ? `Loading ${t.deepProgress.done}/${t.deepProgress.total}…` : null}
-        />
-      )}
-
-      <TeamFormCard riders={ok} onOpen={open} />
-
-      <div className="team-tiles">
-        {me && (
-          <div className="card" style={{ borderColor: 'var(--accent)' }}>
-            <div className="label">Your standing</div>
-            <div className="team-big num">#{rank('hours_this_week')}</div>
-            <div className="tiny muted">
-              in hours this week · #{rank('fitness')} fitness · #{rank('eftp_wkg') || '—'} W/kg of {ok.length}
-            </div>
-          </div>
-        )}
-        <div className="card">
-          <div className="label">Team hours · this week</div>
-          <div className="team-big num">{h1(sum('hours_this_week'))} h</div>
-          <div className="tiny muted">Last week {h1(sum('hours_last_week'))} h</div>
-        </div>
-        <div className="card">
-          <div className="label">Team hours · this month</div>
-          <div className="team-big num">{h1(sum('hours_month'))} h</div>
-          <div className="tiny muted">
-            Year {n0(sum('hours_ytd'))} h · {n0(sum('miles_ytd'))} mi
-          </div>
-        </div>
-        <div className="card">
-          <div className="label">Riders out this week</div>
-          <div className="team-big num">{ranked.length}</div>
-          <div className="tiny muted">
-            of {team.riders.length} on the roster · {ok.length} connected
-          </div>
-        </div>
-        <div className="card">
-          <div className="label">Power PRs · last 8 weeks</div>
-          <div className="team-big num">{prs.length}</div>
-          <div className="tiny muted">Best of the past year, 5 s to 20 min</div>
-        </div>
-        <div className="card">
-          <div className="label">Staleness watch</div>
-          <div className="team-big num">{staleWatch.length}</div>
-          <div className="tiny muted">{staleWatch.length ? staleWatch.map((r) => r.rider).join(', ') : 'Nobody flagged'}</div>
-        </div>
-        <div className="card">
-          <div className="label">Avg VO2max estimate</div>
-          <div className="team-big num">{vo2s.length ? (vo2s.reduce((a, b) => a + b, 0) / vo2s.length).toFixed(1) : dash}</div>
-          <div className="tiny muted">ml/kg/min · {vo2s.length} riders with power data</div>
-        </div>
-      </div>
-
       <div className="card">
         <div className="card-head">
           <div className="stack" style={{ gap: 2 }}>
@@ -368,6 +309,65 @@ export function TeamPage() {
           {ok.some((r) => r.hidden_strava) ? ` Hidden Strava activities: ${ok.filter((r) => r.hidden_strava).map((r) => `${r.rider} ${r.hidden_strava}`).join(', ')}.` : ''}
         </p>
       </div>
+
+      <TeamFormCard riders={ok} onOpen={open} />
+
+      <div className="team-tiles">
+        {me && (
+          <div className="card" style={{ borderColor: 'var(--accent)' }}>
+            <div className="label">Your standing</div>
+            <div className="team-big num">#{rank('hours_this_week')}</div>
+            <div className="tiny muted">
+              in hours this week · #{rank('fitness')} fitness · #{rank('eftp_wkg') || '—'} W/kg of {ok.length}
+            </div>
+          </div>
+        )}
+        <div className="card">
+          <div className="label">Team hours · this week</div>
+          <div className="team-big num">{h1(sum('hours_this_week'))} h</div>
+          <div className="tiny muted">Last week {h1(sum('hours_last_week'))} h</div>
+        </div>
+        <div className="card">
+          <div className="label">Team hours · this month</div>
+          <div className="team-big num">{h1(sum('hours_month'))} h</div>
+          <div className="tiny muted">
+            Year {n0(sum('hours_ytd'))} h · {n0(sum('miles_ytd'))} mi
+          </div>
+        </div>
+        <div className="card">
+          <div className="label">Riders out this week</div>
+          <div className="team-big num">{ranked.length}</div>
+          <div className="tiny muted">
+            of {team.riders.length} on the roster · {ok.length} connected
+          </div>
+        </div>
+        <div className="card">
+          <div className="label">Power PRs · last 8 weeks</div>
+          <div className="team-big num">{prs.length}</div>
+          <div className="tiny muted">Best of the past year, 5 s to 20 min</div>
+        </div>
+        <div className="card">
+          <div className="label">Staleness watch</div>
+          <div className="team-big num">{staleWatch.length}</div>
+          <div className="tiny muted">{staleWatch.length ? staleWatch.map((r) => r.rider).join(', ') : 'Nobody flagged'}</div>
+        </div>
+        <div className="card">
+          <div className="label">Avg VO2max estimate</div>
+          <div className="team-big num">{vo2s.length ? (vo2s.reduce((a, b) => a + b, 0) / vo2s.length).toFixed(1) : dash}</div>
+          <div className="tiny muted">ml/kg/min · {vo2s.length} riders with power data</div>
+        </div>
+      </div>
+
+      {isCoach && (
+        <CoachReadinessTable
+          riders={ok}
+          metrics={t.metrics}
+          deep={t.deep}
+          asOf={app.asOf}
+          onOpen={open}
+          loading={t.deepProgress ? `Loading ${t.deepProgress.done}/${t.deepProgress.total}…` : null}
+        />
+      )}
 
       <div ref={detailRef}>{selRider && <RiderDetail r={selRider} m={t.metrics[selRider.id]} riders={ok} onPick={setSel} coach={isCoach} deep={t.deep[selRider.id]} />}</div>
 

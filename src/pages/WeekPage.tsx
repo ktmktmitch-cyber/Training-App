@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { addDays, dowShort, fmtMinutes, fmtShort } from '../engine/dates';
+import { addDays, dowLong, dowShort, fmtMinutes, fmtShort } from '../engine/dates';
 import { workoutDescription } from '../engine/icuExport';
 import { canChooseRest, PHASE_LABELS } from '../engine/periodization';
 import type { DayConfig } from '../engine/types';
@@ -229,7 +229,41 @@ export function WeekPage() {
             onToast={showToast}
             onSwap={(id, dur, level) => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
             onRest={() => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'off' })}
+            moveTargets={plan.days
+              .filter((x) => x.date !== d.date && x.status !== 'off' && x.status !== 'race')
+              .map((x) => ({ date: x.date, label: `${dowLong(x.date)} ${fmtShort(x.date)}${x.ride ? ` (${x.ride.name})` : ' (rest)'}` }))}
+            movedTo={Object.entries(week.days).find(([, c]) => c.status === 'pinned' && c.pinned?.fromCoach && c.pinned.movedFrom === d.date)?.[0] ?? null}
+            onMove={(to) => {
+              const r = d.ride;
+              if (!r) return;
+              const days = { ...week.days };
+              const src = days[d.date];
+              const origin = src?.status === 'pinned' && src.pinned?.movedFrom ? src.pinned.movedFrom : d.date;
+              const coach = !!r.why[0]?.startsWith('From your coach');
+              if (r.fixed === 'calendar') days[d.date] = { ...(src ?? { maxMinutes: null }), status: 'available', skipCalendar: true, pinned: undefined };
+              else if (origin !== d.date) delete days[d.date];
+              else days[d.date] = { ...(src ?? { maxMinutes: null }), status: 'available', pinned: undefined };
+              if (to === origin && coach) {
+                // back where the coach put it
+                delete days[to];
+              } else {
+                days[to] = { ...(days[to] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: r.templateId, durationMin: r.durationMin, level: r.level, movedFrom: origin, fromCoach: coach } };
+              }
+              app.schedule(to, null);
+              app.setWeek({ ...week, days });
+              showToast(`Moved “${r.name}” to ${dowLong(to)} — the rest of the week re-planned around it.`);
+            }}
             onReset={() => {
+              const mf = week.days[d.date]?.pinned?.movedFrom;
+              if (mf) {
+                const days = { ...week.days };
+                delete days[d.date];
+                if (days[mf]?.skipCalendar) delete days[mf];
+                app.setWeek({ ...week, days });
+                app.schedule(d.date, null);
+                showToast('Moved workout put back.');
+                return;
+              }
               setDay(d.date, null);
               app.schedule(d.date, null);
               showToast('Back to the recommended workout.');

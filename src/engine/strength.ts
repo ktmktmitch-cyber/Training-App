@@ -10,6 +10,7 @@ import type {
   PlannedDay,
   Readiness,
   StrengthExercise,
+  StrengthGoal,
   StrengthPhase,
   StrengthSession,
   StrengthSettings,
@@ -200,6 +201,11 @@ export interface StrengthPlanArgs {
   basePhase: StrengthPhase; // from the macro plan
 }
 
+/** Maintaining: hold strength with the maintenance program instead of progressive build blocks. */
+export function goalPhase(phase: StrengthPhase, goal: StrengthGoal | undefined): StrengthPhase {
+  return goal === 'maintain' && (phase === 'AA' || phase === 'MS' || phase === 'SP') ? 'MT' : phase;
+}
+
 export function phaseCap(phase: StrengthPhase): number {
   return { AA: 3, MS: 3, SP: 2, MT: 2, DL: 1, TP: 1 }[phase];
 }
@@ -225,7 +231,16 @@ export function planStrength(args: StrengthPlanArgs): { sessions: Record<ISODate
     notes.push('New to lifting: a few more adaptation sessions before heavy (RPE 8+) work.');
   }
 
+  if (settings.goal === 'maintain') {
+    const before = phase;
+    phase = reEntry && before === 'AA' ? 'AA' : goalPhase(phase, 'maintain');
+    if (phase === 'MT' && before !== 'MT') notes.push('Maintaining strength: short heavy sessions with fewer sets — enough to keep what you have without extra fatigue for the bike.');
+  }
   let target = settings.frequency as number;
+  if (settings.goal === 'maintain' && target > 2) {
+    target = 2;
+    notes.push('Maintaining: 1–2 sessions a week keeps strength (Rønnestad et al. 2010) — capped at 2.');
+  }
   if (settings.followPhaseCaps && target > phaseCap(phase)) {
     notes.push(`Strength capped at ${phaseCap(phase)}×/week in this phase (${PHASE_INFO[phase].title.toLowerCase()}) to protect bike sessions.`);
     target = phaseCap(phase);

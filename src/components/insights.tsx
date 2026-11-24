@@ -67,7 +67,14 @@ export function NextWorkoutCard(props: {
             {r && <IntensityChip intensity={r.intensity} category={r.category} />}
             {r && <DifficultyChip difficulty={r.progression?.difficulty} level={r.progression?.workoutLevel} />}
             {day.strength && <span className="chip">🏋 {day.strength.title}</span>}
+            {r?.why[0]?.startsWith('From your coach') && (
+              <span className="chip coach-chip">
+                <span className="coach-dot" />
+                From your coach
+              </span>
+            )}
           </div>
+          {r?.why[0]?.startsWith('From your coach') && <div className="tiny coach-note">Scheduled by your coach — you can still swap it or move it in the day list below.</div>}
         </div>
         <div className="stack" style={{ alignItems: 'flex-end', gap: 6 }}>
           <span className="status-pill" title={readiness.summary}>
