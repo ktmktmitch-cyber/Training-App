@@ -3,6 +3,7 @@ import { Icon } from './components/ui';
 import { AuthProvider, useAuth } from './lib/auth';
 import { AppProvider, useApp } from './lib/store';
 import { LoginPage } from './pages/LoginPage';
+import { CalendarPage } from './pages/CalendarPage';
 import { GuidePage } from './pages/GuidePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { SeasonPage } from './pages/SeasonPage';
@@ -18,6 +19,7 @@ function MorePage() {
       <h1>More</h1>
       <div className="more-links">
         {[
+          { id: 'library', label: 'Workout library', icon: 'library' as const },
           { id: 'season', label: 'Season plan', icon: 'season' as const },
           { id: 'strength', label: 'Strength', icon: 'strength' as const },
           { id: 'settings', label: 'Settings', icon: 'settings' as const },
@@ -35,8 +37,9 @@ function MorePage() {
 
 const ROUTES = [
   { id: 'week', label: 'Week', icon: 'week' as const, el: <WeekPage />, mobile: true },
+  { id: 'calendar', label: 'Calendar', icon: 'calendar' as const, el: <CalendarPage />, mobile: true },
   { id: 'season', label: 'Season', icon: 'season' as const, el: <SeasonPage />, mobile: false },
-  { id: 'library', label: 'Library', icon: 'library' as const, el: <LibraryPage />, mobile: true },
+  { id: 'library', label: 'Library', icon: 'library' as const, el: <LibraryPage />, mobile: false },
   { id: 'progress', label: 'Progress', icon: 'trends' as const, el: <TrendsPage />, mobile: true },
   { id: 'team', label: 'Team', icon: 'team' as const, el: <TeamPage />, mobile: true },
   { id: 'strength', label: 'Strength', icon: 'strength' as const, el: <StrengthPage />, mobile: false },

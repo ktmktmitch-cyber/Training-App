@@ -52,6 +52,7 @@ export interface Activity {
   isRide: boolean;
   isStrength: boolean;
   movingSec: number;
+  distanceM?: number | null;
   tss: number | null; // training load
   intensity: number | null; // IF 0..1.5
   normalizedPower: number | null;

@@ -97,6 +97,7 @@ interface RawActivity {
   name?: string;
   moving_time?: number | null;
   elapsed_time?: number | null;
+  distance?: number | null;
   icu_training_load?: number | null;
   icu_intensity?: number | null;
   icu_weighted_avg_watts?: number | null;
@@ -205,6 +206,7 @@ export function normalizeActivity(a: RawActivity): Activity {
     isRide: RIDE_TYPES.has(type),
     isStrength: type === 'WeightTraining',
     movingSec: a.moving_time ?? a.elapsed_time ?? 0,
+    distanceM: a.distance ?? null,
     tss: a.icu_training_load ?? null,
     intensity: a.icu_intensity != null ? a.icu_intensity / 100 : null,
     normalizedPower: a.icu_weighted_avg_watts ?? null,
@@ -298,6 +300,15 @@ export async function fetchAll(conn: Connection, oldest: ISODate, newest: ISODat
     events: (eventsRaw ?? []).map(normalizeEvent),
     powerCurves,
   };
+}
+
+/** Activities and calendar events for a date range (for browsing older months in the calendar). */
+export async function fetchHistory(conn: Connection, oldest: ISODate, newest: ISODate) {
+  const [activitiesRaw, eventsRaw] = await Promise.all([
+    call<RawActivity[]>(conn, `/athlete/${aid(conn)}/activities?oldest=${oldest}&newest=${newest}`),
+    call<RawEvent[]>(conn, `/athlete/${aid(conn)}/events?oldest=${oldest}&newest=${newest}`),
+  ]);
+  return { activities: (activitiesRaw ?? []).map(normalizeActivity).filter((a) => a.date), events: (eventsRaw ?? []).map(normalizeEvent) };
 }
 
 /** One athlete's profile, wellness and activities (works for coached athletes with the coach's key). */

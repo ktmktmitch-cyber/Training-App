@@ -170,6 +170,10 @@ interface Ctx {
   compliance: ComplianceDay[];
   power: PowerProfile | null;
   powerCurves: PowerCurve[];
+  /** intervals.icu calendar + races added in the app */
+  events: CalendarEvent[];
+  /** what the app planned for past days (for planned-vs-done) */
+  snapshots: Record<ISODate, PlanSnapshot>;
   feedback: Record<string, Feedback>;
   setFeedback: (activityId: string, f: Feedback | null) => void;
   journal: Journal;
@@ -477,8 +481,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [data.activities, data.wellness, asOf, performance.improvement, readiness]);
   const snapshots = useMemo(() => (settings.demo ? demoSnapshots(asOf) : history), [settings.demo, asOf, history]);
   const compliance = useMemo(
-    () => computeCompliance(range(addDays(asOf, -7), 8), asOf, data.events, data.activities, snapshots),
-    [asOf, data.events, data.activities, snapshots],
+    () => computeCompliance(range(addDays(asOf, -7), 8), asOf, events, data.activities, snapshots),
+    [asOf, events, data.activities, snapshots],
   );
   const carryOver = useMemo(() => missedKeySessions(compliance, asOf), [compliance, asOf]);
   const powerCurves = useMemo(() => data.powerCurves ?? [], [data.powerCurves]);
@@ -609,6 +613,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pushWorkout,
     getConnection: connection,
     exportDefaults,
+    events,
+    snapshots,
     account,
     guest,
     vo2,
