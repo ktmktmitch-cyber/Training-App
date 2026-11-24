@@ -1,5 +1,6 @@
 // What a week should contain, given its phase/week type, the event and the chosen
 // intensity-distribution model.
+import { eventProfile } from './goals';
 import type { EventType, GoalSettings, IntensityModel, MacroWeek } from './types';
 
 export interface WeekProfile {
@@ -26,11 +27,24 @@ const EVENT_SPECIFIC: Record<EventType, { slots: string[][]; long: string[] }> =
   stage_race: { slots: [['threshold', 'over_under'], ['vo2_long', 'thr_surges']], long: ['durability'] },
   ultra: { slots: [['sweetspot', 'tempo'], ['threshold']], long: ['durability'] },
   fitness: { slots: [['sweetspot', 'threshold'], ['vo2_long', 'vo2_3015']], long: ['endurance'] },
+  // Non-drafting triathlon: steady power at/below threshold; longer races ride at tempo / sweet spot
+  tri_sprint: { slots: [['threshold', 'tt_sim'], ['vo2_long', 'over_under']], long: ['endurance'] },
+  tri_olympic: { slots: [['tt_sim', 'threshold'], ['vo2_long', 'over_under']], long: ['endurance'] },
+  tri_70_3: { slots: [['sweetspot', 'threshold'], ['tempo', 'over_under']], long: ['durability'] },
+  tri_ironman: { slots: [['sweetspot', 'tempo'], ['tempo', 'sweetspot']], long: ['durability'] },
+  // Running events: the bike plan is converted to runs (or supports them in run + bike)
+  run_5k: { slots: [['vo2_long', 'threshold'], ['vo2_3015', 'sweetspot']], long: ['endurance'] },
+  run_10k: { slots: [['threshold', 'vo2_long'], ['sweetspot', 'vo2_3015']], long: ['endurance'] },
+  run_half: { slots: [['threshold', 'sweetspot'], ['tempo', 'vo2_long']], long: ['endurance'] },
+  run_marathon: { slots: [['sweetspot', 'tempo'], ['threshold']], long: ['durability'] },
+  run_ultra: { slots: [['tempo', 'sweetspot'], ['threshold']], long: ['durability'] },
 };
 
-const LONG_EVENTS: EventType[] = ['road_race', 'gran_fondo', 'gravel', 'stage_race', 'ultra'];
+const LONG_EVENTS: EventType[] = ['road_race', 'gran_fondo', 'gravel', 'stage_race', 'ultra', 'tri_70_3', 'tri_ironman', 'run_marathon', 'run_ultra'];
 
 export function longRideCap(type: EventType, eventHours: number): number {
+  const ev = eventProfile(type);
+  if (ev?.longRide) return ev.longRide;
   switch (type) {
     case 'ultra':
       return 420;

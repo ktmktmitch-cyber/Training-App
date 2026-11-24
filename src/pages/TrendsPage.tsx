@@ -114,7 +114,6 @@ export function TrendsPage() {
       />
       {tab === 'performance' && (
         <>
-          <HeatCard heat={app.heat} />
           <div className="grid-2">
             <FtpCard
               perf={app.performance}
@@ -330,6 +329,7 @@ export function TrendsPage() {
         </div>
       </div>
       )}
+      <HeatCard heat={app.heat} />
       {toast}
     </>
   );

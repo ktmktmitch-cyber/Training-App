@@ -8,6 +8,8 @@ import { toggleRestWeek } from '../lib/restWeeks';
 import { RacesCard } from '../components/RacesCard';
 import { WeeksOffCard } from '../components/WeeksOffCard';
 import { useApp } from '../lib/store';
+import { eventProfile, RUN_EVENTS, TRI_EVENTS } from '../engine/goals';
+import { SPORT_LABEL } from '../engine/multisport';
 
 const MODELS: { id: PeriodizationModel; name: string; desc: string }[] = [
   { id: 'linear', name: 'Traditional (linear)', desc: 'Base → Build → Peak → Taper. Volume first, then intensity and specificity. The most common, well-understood structure.' },
@@ -45,6 +47,16 @@ export function SeasonPage() {
   const { settings, macro, asOf } = app;
   const g = settings.goal;
   const set = (patch: Partial<GoalSettings>) => app.updateSettings((s) => ({ ...s, goal: { ...s.goal, ...patch } }));
+  // Picking a triathlon or running goal also sets the sport plan it needs and a typical finishing time
+  const pickEvent = (t: EventType) => {
+    const ev = eventProfile(t);
+    app.updateSettings((s) => {
+      const cur = s.prefs.sport ?? 'cycling';
+      const sport = !ev ? cur : ev.kind === 'tri' ? 'triathlon' : cur === 'running' || cur === 'run_bike' ? cur : 'running';
+      return { ...s, goal: { ...s.goal, eventType: t, ...(ev ? { eventDurationHours: ev.hours } : {}) }, prefs: { ...s.prefs, sport } };
+    });
+  };
+  const evp = eventProfile(g.eventType);
   const currentMonday = mondayOf(addDays(asOf, 1));
   const weeks = macro.weeks.filter((w) => diffDays(addDays(w.start, 6), asOf) >= 0);
   const ctl0 = app.readiness.ctl ?? app.trends.ctl ?? 40;
@@ -74,11 +86,22 @@ export function SeasonPage() {
             <input className="input" type="date" value={g.eventDate ?? ''} min={asOf} onChange={(e) => set({ eventDate: e.target.value || null, eventType: g.eventType === 'fitness' && e.target.value ? 'road_race' : g.eventType })} />
           </Field>
           <Field label="Event type">
-            <select className="select" value={g.eventType} onChange={(e) => set({ eventType: e.target.value as EventType })}>
-              {Object.entries(EVENT_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
+            <select className="select" value={g.eventType} onChange={(e) => pickEvent(e.target.value as EventType)} aria-label="Event type">
+              {(
+                [
+                  ['Cycling', (Object.keys(EVENT_LABELS) as EventType[]).filter((k) => !TRI_EVENTS.includes(k) && !RUN_EVENTS.includes(k) && k !== 'fitness')],
+                  ['Triathlon', TRI_EVENTS],
+                  ['Running', RUN_EVENTS],
+                  ['No event', ['fitness']],
+                ] as [string, EventType[]][]
+              ).map(([grp, ks]) => (
+                <optgroup key={grp} label={grp}>
+                  {ks.map((k) => (
+                    <option key={k} value={k}>
+                      {EVENT_LABELS[k]}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </Field>
@@ -97,6 +120,31 @@ export function SeasonPage() {
             </div>
           </Field>
         </div>
+        {evp && (
+          <div className="callout goal-plan">
+            <div className="row" style={{ alignItems: 'baseline' }}>
+              <b>{evp.label}</b>
+              <span className="small ink2">{evp.distance}</span>
+              <span className="spacer" />
+              <span className="chip">Plan: {SPORT_LABEL[app.settings.prefs.sport ?? 'cycling']}</span>
+            </div>
+            <div className="row small" style={{ gap: 14, marginTop: 6 }}>
+              {evp.longSwim ? <span>Longest swim → {fmtMin(evp.longSwim)}</span> : null}
+              {evp.longRide ? <span>Longest ride → {fmtMin(evp.longRide)}</span> : null}
+              {evp.longRun ? <span>Longest run → {fmtMin(evp.longRun)}</span> : null}
+              {evp.brick ? <span>Bricks → {fmtMin(evp.brick)} run off the bike</span> : null}
+              <span>Taper {evp.taperDays} days</span>
+            </div>
+            <ul className="why small" style={{ marginTop: 6 }}>
+              {evp.guidance.map((x, i) => (
+                <li key={i}>{x}</li>
+              ))}
+            </ul>
+            <p className="tiny muted" style={{ margin: 0 }}>
+              Long sessions grow through base → build → peak and come down in the taper. Running never ramps more than ~15% a week above what you’ve recently run, even if that means reaching the longest run later.
+            </p>
+          </div>
+        )}
         <label className="check">
           <input type="checkbox" checked={g.useCalendarRaces} onChange={(e) => set({ useCalendarRaces: e.target.checked })} />
           <span>Read A/B/C races (and sick/holiday days) from my intervals.icu calendar</span>
@@ -261,4 +309,10 @@ export function SeasonPage() {
       </div>
     </>
   );
+}
+
+function fmtMin(m: number): string {
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return h ? `${h} h${r ? ` ${String(r).padStart(2, '0')}` : ''}` : `${r} min`;
 }

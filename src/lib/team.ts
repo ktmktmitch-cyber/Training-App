@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addDays, diffDays } from '../engine/dates';
-import { parseTeamData, riderFromData, riderMetrics, type DeepRider, type RiderMetrics, type TeamData, type TeamFeedItem } from '../engine/team';
+import { parseTeamData, riderFromData, riderMetrics, withLiveActivities, type DeepRider, type RiderMetrics, type TeamData, type TeamFeedItem } from '../engine/team';
 import { demoData, type DemoOpts } from './demo';
 import { fetchAthleteData, fetchEvents } from './intervals';
 import { readDoc } from './cloudSync';
@@ -13,6 +13,9 @@ export const DEFAULT_TEAM_URL = 'https://raw.githubusercontent.com/ktmktmitch-cy
 
 const K_TEAM = 'ta.team.v1';
 const K_DEEP = 'ta.teamdeep.v1';
+
+/** intervals.icu refused because the rider hasn't added this key's athlete as a coach. */
+export const isNotShared = (e: Error) => /\b(401|403)\b|forbidden|unauthori[sz]ed|permission|access denied/i.test(e.message);
 
 export async function fetchTeam(url: string): Promise<TeamData> {
   let res: Response;
@@ -103,8 +106,18 @@ export function useTeam(): TeamState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demo, url]);
 
-  const current = demoSet?.team ?? team;
   const currentDeep = demoSet?.deep ?? deep;
+  // Add rides synced since the last team update: yours from your live data, coached riders' from their loaded details
+  const myId = app.data.profile?.id ?? null;
+  const myActs = app.data.activities;
+  const current = useMemo(() => {
+    const base = demoSet?.team ?? team;
+    if (!base || demoSet) return base;
+    const live: Record<string, import('../engine/types').Activity[]> = {};
+    for (const [id, d] of Object.entries(deep)) if (!d.error && d.activities.length) live[id] = d.activities;
+    if (myId && myActs.length) live[myId] = myActs;
+    return withLiveActivities(base, live);
+  }, [demoSet, team, deep, myId, myActs]);
   // Detailed per-rider health data (HRV, readiness) is for the coach only
   const deepAvailable = !demo && app.canPush && (!app.account || app.account.role === 'coach');
 
@@ -121,7 +134,12 @@ export function useTeam(): TeamState {
       while (queue.length) {
         const id = queue.shift()!;
         try {
-          const d = await fetchAthleteData(conn, id, addDays(asOf, -63), asOf);
+          // One retry after a short pause for anything but "not shared" (throttling, network blips)
+          const d = await fetchAthleteData(conn, id, addDays(asOf, -63), asOf).catch(async (e: Error) => {
+            if (isNotShared(e)) throw e;
+            await new Promise((r) => setTimeout(r, 1500));
+            return fetchAthleteData(conn, id, addDays(asOf, -63), asOf);
+          });
           // Calendar (sick/injured/holiday days) and their synced app settings (planned breaks) — best effort
           const rc = { ...conn, athleteId: id };
           const [events, doc] = await Promise.all([fetchEvents(rc, addDays(asOf, -28), addDays(asOf, 90)).catch(() => undefined), readDoc(rc).catch(() => null)]);
@@ -138,7 +156,11 @@ export function useTeam(): TeamState {
             fetchedAt: new Date().toISOString(),
           };
         } catch (e) {
-          out[id] = { activities: [], wellness: [], profile: null, fetchedAt: new Date().toISOString(), error: (e as Error).message };
+          const err = e as Error;
+          const prev = out[id];
+          // Keep the last good data if this was just a temporary failure
+          if (prev && !prev.error && !isNotShared(err)) out[id] = { ...prev, stale: true };
+          else out[id] = { activities: [], wellness: [], profile: null, fetchedAt: new Date().toISOString(), error: err.message, notShared: isNotShared(err) };
         }
         done++;
         setDeepProgress({ done, total: ids.length });

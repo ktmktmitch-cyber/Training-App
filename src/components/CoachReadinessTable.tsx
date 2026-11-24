@@ -48,7 +48,7 @@ export function CoachReadinessTable({ riders, metrics, deep, asOf, onOpen, loadi
                   <tr key={r.id}>
                     <td>{r.rider}</td>
                     <td colSpan={7} className="muted small">
-                      {d?.error ? 'Not shared with you on intervals.icu (they need to add you as coach)' : 'Loading…'}
+                      {d?.error ? (d.notShared ?? /\b(401|403)\b|forbidden|permission/i.test(d.error) ? 'Not shared with you on intervals.icu (they need to add you as coach)' : 'Couldn’t load just now — tap Load details to retry') : 'Loading…'}
                     </td>
                   </tr>
                 );

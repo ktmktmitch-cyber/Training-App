@@ -623,7 +623,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => ({
         startDate,
         asOf,
-        week: sport === 'run_bike' || sport === 'triathlon' ? { ...week, hours: bikeHoursFor(sport, week.hours) } : week,
+        week: sport === 'run_bike' || sport === 'triathlon' ? { ...week, hours: bikeHoursFor(sport, week.hours, settings.goal.eventType) } : week,
         goal: settings.goal,
         macro,
         prefs: settings.prefs,
@@ -670,8 +670,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         asOf,
         weightKg: effProfile?.weightKg ?? null,
         minRestDays: settings.prefs.minRestDays,
+        event: settings.goal.eventType,
       }),
-    [basePlan, autoPlan, sport, week.hours, readiness, data.activities, asOf, effProfile, settings.prefs.minRestDays],
+    [basePlan, autoPlan, sport, week.hours, readiness, data.activities, asOf, effProfile, settings.prefs.minRestDays, settings.goal.eventType],
   );
   const plan = useMemo(() => applySecondSessions(sportsPlan, (d) => week.days[d], effProfile?.weightKg ?? null, readiness), [sportsPlan, week.days, effProfile, readiness]);
 

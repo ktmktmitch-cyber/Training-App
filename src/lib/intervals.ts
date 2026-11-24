@@ -12,7 +12,8 @@ export interface Connection {
   appPassword?: string;
 }
 
-const RIDE_TYPES = new Set(['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide', 'EBikeRide', 'EMountainBikeRide', 'TrackRide', 'Cyclocross', 'Velomobile', 'Handcycle']);
+/** Every kind of ride counts: road, gravel, mountain, track, cyclocross, indoor/virtual (Zwift, Peloton, MyWhoosh), e-bike, handcycle, velomobile. */
+export const isRideType = (type: string | null | undefined): boolean => /ride|cycl|velomobile|handcycle|peloton|spin/i.test(type ?? '');
 
 export class ApiError extends Error {
   constructor(
@@ -214,7 +215,7 @@ export function normalizeActivity(a: RawActivity): Activity {
     startTime: a.start_date_local,
     name: a.name ?? type,
     type,
-    isRide: RIDE_TYPES.has(type),
+    isRide: isRideType(type),
     isStrength: type === 'WeightTraining',
     movingSec: a.moving_time ?? a.elapsed_time ?? 0,
     distanceM: a.distance ?? null,

@@ -14,6 +14,7 @@ import type {
   StrengthPhase,
   WeekType,
 } from './types';
+import { eventProfile } from './goals';
 
 export const EVENT_LABELS: Record<EventType, string> = {
   road_race: 'Road race',
@@ -26,6 +27,15 @@ export const EVENT_LABELS: Record<EventType, string> = {
   cx: 'Cyclocross',
   stage_race: 'Stage race',
   ultra: 'Ultra-endurance',
+  tri_sprint: 'Sprint triathlon',
+  tri_olympic: 'Olympic-distance triathlon',
+  tri_70_3: 'Half Ironman (70.3)',
+  tri_ironman: 'Ironman',
+  run_5k: '5 km run',
+  run_10k: '10 km run',
+  run_half: 'Half marathon',
+  run_marathon: 'Marathon',
+  run_ultra: 'Ultra / trail run',
   fitness: 'General fitness (no event)',
 };
 
@@ -64,6 +74,8 @@ const FOCUS: Record<Phase, string> = {
 };
 
 export function taperDaysFor(type: EventType, durationH: number): number {
+  const ev = eventProfile(type);
+  if (ev) return ev.taperDays;
   switch (type) {
     case 'crit':
     case 'mtb_xc':

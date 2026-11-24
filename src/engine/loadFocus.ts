@@ -28,7 +28,7 @@ export function focusTargets(phase: Phase, event: EventType): Record<FocusKey, [
   else if (['build', 'intensity', 'transmutation', 'maintain'].includes(phase)) t = { low: [0.45, 0.65], high: [0.3, 0.48], anaerobic: [0.05, 0.12] };
   else t = { low: [0.4, 0.6], high: [0.3, 0.48], anaerobic: [0.07, 0.15] };
   if (['crit', 'cx', 'mtb_xc', 'road_race'].includes(event)) t.anaerobic = [t.anaerobic[0] + 0.02, t.anaerobic[1] + 0.03];
-  if (['ultra', 'gran_fondo', 'tt'].includes(event)) {
+  if (['ultra', 'gran_fondo', 'tt', 'tri_70_3', 'tri_ironman', 'run_marathon', 'run_ultra', 'run_half'].includes(event)) {
     t.anaerobic = [Math.max(0.01, t.anaerobic[0] - 0.02), Math.max(0.05, t.anaerobic[1] - 0.03)];
     t.low = [t.low[0] + 0.03, t.low[1] + 0.03];
   }
