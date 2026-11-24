@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { addDays, diffDays, dow, range, today } from '../engine/dates';
 import { computeCompliance, missedKeySessions, type ComplianceDay, type PlanSnapshot } from '../engine/compliance';
 import { allExternalIdsFor, dayToIcuEvents, ICU_TYPE, workoutDescription, EXTERNAL_PREFIX } from '../engine/icuExport';
@@ -12,6 +12,7 @@ import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
 import { trainingStatus, type TrainingStatus } from '../engine/status';
 import { buildMacroPlan, macroWeekFor, withAppRaces, withAwayWeeks } from '../engine/periodization';
+import { deviceName, flatten, mergeDocs, readDoc, restamp, syncRaces, trim, unflatten, writeDoc, type SyncState } from './cloudSync';
 import { planWeek } from '../engine/planner';
 import { applySports, bikeHoursFor } from '../engine/multisport';
 import { targetsLabel, type ExportTargets } from '../engine/targets';
@@ -23,6 +24,7 @@ import type {
   CalendarEvent,
   CheckIn,
   DayConfig,
+  PlannedRace,
   PlannedWorkout,
   PowerCurve,
   GoalSettings,
@@ -39,7 +41,7 @@ import type {
 import { useAuth, type PublicUser, type ServerInfo } from './auth';
 import { DEFAULT_PREFS, DEFAULT_STRENGTH, defaultGoal } from './defaults';
 import { demoData, demoJournal, demoSnapshots } from './demo';
-import { fetchAll, pushEvents, testConnection, type Connection } from './intervals';
+import { fetchAll, fetchEvents, pushEvents, testConnection, type Connection } from './intervals';
 import { load, save } from './storage';
 import { mergeActivities, stravaActivities, stravaStatus, type StravaStatus } from './strava';
 
@@ -62,6 +64,7 @@ export interface AppSettings {
   usualDays: Partial<Record<number, DayConfig>>;
   startOffset: 0 | 1; // plan from today (0) or tomorrow (1)
   teamUrl: string; // team-dashboard data/team.json
+  cloudSync?: boolean; // sync settings across devices via intervals.icu (default on)
 }
 
 export interface DataState {
@@ -88,12 +91,19 @@ function keysFor(ns: string) {
     feedback: `${p}feedback.v1`,
     history: `${p}history.v1`,
     journal: `${p}journal.v1`,
+    stamps: `${p}syncstamps.v1`,
     scheduled: `${p}scheduled.v1`,
   };
 }
 type Keys = ReturnType<typeof keysFor>;
 
 /** What follows a signed-in user across devices (stored on the server with their account). */
+export interface CloudStatus {
+  state: 'off' | 'syncing' | 'on' | 'error';
+  at: string | null;
+  error: string | null;
+}
+
 interface RemoteState {
   settings?: Partial<AppSettings>;
   weeks?: Record<ISODate, WeekConfig>;
@@ -171,6 +181,8 @@ interface Ctx {
   compliance: ComplianceDay[];
   power: PowerProfile | null;
   powerCurves: PowerCurve[];
+  cloud: CloudStatus;
+  cloudSyncNow: () => Promise<void>;
   /** intervals.icu calendar + races added in the app */
   events: CalendarEvent[];
   /** what the app planned for past days (for planned-vs-done) */
@@ -355,6 +367,122 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (age > 3 * 3600_000 && (settings.connection.apiKey || server?.serverIcuKey || account)) sync().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server, settings.demo]);
+
+  // ---------- Sync across devices via a hidden note on intervals.icu (no server needed) ----------
+  const hasKey = Boolean(settings.connection.apiKey || server?.serverIcuKey);
+  const cloudOn = !account && !guest && !settings.demo && hasKey && settings.cloudSync !== false;
+  const [cloud, setCloud] = useState<CloudStatus>({ state: 'off', at: null, error: null });
+  const syncState: SyncState = useMemo(
+    () => ({ settings: settings as unknown as Record<string, unknown>, weeks, checkins, feedback, history, journal: journalState, scheduled }),
+    [settings, weeks, checkins, feedback, history, journalState, scheduled],
+  );
+  const flat = useMemo(() => flatten(syncState), [syncState]);
+  const prevFlat = useRef<Record<string, string> | null>(null);
+  const stampsRef = useRef<Record<string, number>>(load(K.stamps, {}));
+  const applying = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const busyRef = useRef(false);
+  const flatRef = useRef(flat);
+  flatRef.current = flat;
+
+  // Stamp every item that changed on this device
+  useEffect(() => {
+    if (prevFlat.current && !applying.current) {
+      stampsRef.current = restamp(prevFlat.current, flat, stampsRef.current);
+      save(K.stamps, stampsRef.current);
+    }
+    applying.current = false;
+    prevFlat.current = flat;
+  }, [flat, K]);
+
+  const applyItems = useCallback((items: Record<string, string>) => {
+    const st = unflatten(items);
+    applying.current = true;
+    const rs = (st.settings ?? {}) as Partial<AppSettings>;
+    setSettings((cur) => ({
+      ...cur,
+      ...rs,
+      goal: { ...cur.goal, ...(rs.goal ?? {}) },
+      strength: { ...cur.strength, ...(rs.strength ?? {}) },
+      prefs: { ...cur.prefs, ...(rs.prefs ?? {}) },
+      connection: cur.connection,
+      demo: cur.demo,
+      cloudSync: cur.cloudSync,
+    }));
+    setWeeks((st.weeks ?? {}) as Record<ISODate, WeekConfig>);
+    setCheckins((st.checkins ?? {}) as Record<ISODate, CheckIn>);
+    setFeedbackState((st.feedback ?? {}) as Record<string, Feedback>);
+    setHistory((st.history ?? {}) as Record<ISODate, PlanSnapshot>);
+    setJournalState((st.journal ?? {}) as Journal);
+    setScheduled((st.scheduled ?? {}) as Record<ISODate, Scheduled>);
+  }, []);
+
+  /** Pull the note, merge it with this device, and save back if this device had newer changes. */
+  const cloudSyncNow = useCallback(
+    async (opts: { write?: boolean } = {}) => {
+      if (!cloudOn || busyRef.current) return;
+      busyRef.current = true;
+      setCloud((c) => ({ ...c, state: 'syncing', error: null }));
+      try {
+        const conn = connection();
+        const doc = await readDoc(conn);
+        const local = { items: flatRef.current, stamps: stampsRef.current };
+        const merged = doc ? mergeDocs(local, { items: flatten(doc.data), stamps: doc.stamps ?? {} }) : { items: local.items, stamps: local.stamps, changedLocal: false, changedRemote: true };
+        stampsRef.current = merged.stamps;
+        save(K.stamps, merged.stamps);
+        if (merged.changedLocal) applyItems(merged.items);
+        if (merged.changedRemote && (opts.write ?? true)) {
+          // Anything never stamped (e.g. settings set before syncing existed) counts as changed now,
+          // so a brand-new device takes these values instead of its own defaults
+          const now = Date.now();
+          for (const k of Object.keys(merged.items)) if (!merged.stamps[k]) merged.stamps[k] = now;
+          stampsRef.current = merged.stamps;
+          save(K.stamps, merged.stamps);
+          const t = trim(merged.items, merged.stamps, asOf);
+          await writeDoc(conn, { app: 'trainingapp', v: 1, savedAt: Date.now(), device: deviceName(), stamps: t.stamps, data: unflatten(t.items) });
+        }
+        // Races you added → real A/B/C races on the intervals.icu calendar
+        const races = ((unflatten(merged.items).settings?.goal as GoalSettings | undefined)?.races ?? []) as PlannedRace[];
+        await syncRaces(conn, races, await fetchEvents(conn, asOf, addDays(asOf, 730))).catch(() => 0);
+        setCloud({ state: 'on', at: new Date().toISOString(), error: null });
+      } catch (e) {
+        setCloud((c) => ({ ...c, state: 'error', error: (e as Error).message }));
+      } finally {
+        busyRef.current = false;
+      }
+    },
+    [cloudOn, connection, applyItems, asOf, K],
+  );
+
+  // Load when sync turns on (app opened with a key), and whenever the app comes back into view
+  useEffect(() => {
+    if (!cloudOn) {
+      setCloud({ state: 'off', at: null, error: null });
+      return;
+    }
+    cloudSyncNow();
+    const onVis = () => document.visibilityState === 'visible' && cloudSyncNow();
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudOn]);
+
+  // After a data sync (button or automatic), check for settings changes from other devices too
+  useEffect(() => {
+    if (cloudOn && stored.lastSync) cloudSyncNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stored.lastSync]);
+
+  // Save a few seconds after you change something
+  useEffect(() => {
+    if (!cloudOn || applying.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => cloudSyncNow(), 3000);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flat]);
 
   const startDate = addDays(asOf, settings.startOffset);
 
@@ -635,6 +763,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pushWorkout,
     getConnection: connection,
     exportDefaults,
+    cloud,
+    cloudSyncNow: () => cloudSyncNow(),
     events,
     snapshots,
     account,
