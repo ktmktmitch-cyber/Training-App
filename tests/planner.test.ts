@@ -18,6 +18,10 @@ describe('strength goal', () => {
     expect(goalPhase('TP', 'maintain')).toBe('TP');
     expect(goalPhase('MS', 'build')).toBe('MS');
     expect(goalPhase('MS', undefined)).toBe('MS');
+    expect(goalPhase('MT', 'build')).toBe('MS');
+    expect(goalPhase('MT', undefined)).toBe('MS');
+    expect(goalPhase('DL', 'build')).toBe('DL');
+    expect(goalPhase('TP', 'build')).toBe('TP');
   });
 });
 
