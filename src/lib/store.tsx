@@ -15,7 +15,7 @@ import { trainingStatus, type TrainingStatus } from '../engine/status';
 import { buildMacroPlan, macroWeekFor, withAppRaces, withAwayWeeks } from '../engine/periodization';
 import { deviceName, flatten, mergeDocs, readDoc, restamp, syncRaces, trim, unflatten, writeDoc, type SyncState } from './cloudSync';
 import { planWeek } from '../engine/planner';
-import { applySports, bikeHoursFor } from '../engine/multisport';
+import { applySecondSessions, applySports, bikeHoursFor } from '../engine/multisport';
 import { targetsLabel, type ExportTargets } from '../engine/targets';
 import { assessReadiness } from '../engine/readiness';
 import { computeTrends } from '../engine/trends';
@@ -523,7 +523,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       for (const d of range(w.startDate, 7)) {
         const c = w.days[d];
         // Keep recurring things (blocked days, group rides, time caps); not one-off pins/races
-        if (c && (c.status === 'off' || c.status === 'group' || c.maxMinutes != null || c.noLift))
+        if (c && (c.status === 'off' || c.status === 'group' || c.maxMinutes != null || c.noLift || c.second))
           usual[dow(d)] = c.status === 'pinned' || c.status === 'race' ? { status: 'available', maxMinutes: c.maxMinutes } : c;
       }
       setSettings((s) => ({ ...s, usualHours: w.hours, usualDays: usual }));
@@ -659,7 +659,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!basePlan.days.some((d) => d.ride?.fixed === 'calendar')) return null;
     return planWeek({ ...planInput, events: planInput.events.filter((e) => !(e.category === 'WORKOUT' && !(e.externalId ?? '').startsWith(`${EXTERNAL_PREFIX}-`))) });
   }, [basePlan, planInput]);
-  const plan = useMemo(
+  const sportsPlan = useMemo(
     () =>
       applySports({
         plan: autoPlan
@@ -676,6 +676,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }),
     [basePlan, autoPlan, sport, week.hours, readiness, data.activities, asOf, effProfile, settings.prefs.minRestDays],
   );
+  const plan = useMemo(() => applySecondSessions(sportsPlan, (d) => week.days[d], effProfile?.weightKg ?? null, readiness), [sportsPlan, week.days, effProfile, readiness]);
 
   // Remember what was planned (today onward) so compliance works even without pushing to intervals.icu
   useEffect(() => {

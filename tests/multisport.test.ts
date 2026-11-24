@@ -130,3 +130,25 @@ describe('planned vs done by sport', () => {
     expect(c[0].color).toBe('green');
   });
 });
+
+import { applySecondSessions } from '../src/engine/multisport';
+
+describe('second sessions from availability', () => {
+  it('adds a morning swim; kept easy on a hard day; not duplicated; not on days off', () => {
+    const p = plan('cycling', 9);
+    const hard = p.days.find((d) => d.ride?.key)!;
+    const easy = p.days.find((d) => d.ride && !d.ride.key && d.status === 'available')!;
+    const cfg: Record<string, { second?: 'am_swim' | 'pm_run'; status?: string }> = { [hard.date]: { second: 'am_swim' }, [easy.date]: { second: 'pm_run' } };
+    const r = applySecondSessions(p, (d) => cfg[d], 72, { status: 'green' } as never);
+    const h = r.days.find((d) => d.date === hard.date)!;
+    expect(h.extras?.some((x) => x.sport === 'swim' && x.templateId === 'swim_technique' && x.name.startsWith('AM · '))).toBe(true);
+    const e = r.days.find((d) => d.date === easy.date)!;
+    expect(e.extras?.some((x) => x.sport === 'run' && x.templateId === 'run_easy' && x.name.startsWith('PM · '))).toBe(true);
+    expect(r.totalMin).toBeGreaterThan(p.totalMin);
+    // asking again for a swim on a day that already has one doesn't add a second
+    const again = applySecondSessions(r, (d) => cfg[d], 72, { status: 'green' } as never);
+    expect(again.days.find((d) => d.date === hard.date)!.extras!.filter((x) => x.sport === 'swim').length).toBe(1);
+    const off = applySecondSessions({ ...p, days: p.days.map((d) => ({ ...d, status: 'off' as const })) }, () => ({ second: 'am_swim' }), 72, { status: 'green' } as never);
+    expect(off.days.every((d) => !(d.extras ?? []).length)).toBe(true);
+  });
+});

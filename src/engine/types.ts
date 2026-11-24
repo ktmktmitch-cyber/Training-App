@@ -199,7 +199,11 @@ export interface DayConfig {
   /** a workout already on your intervals.icu calendar (from a coach, TrainerRoad, etc.) */
   scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null; templateId?: string | null; level?: number | null; externalId?: string | null };
   noLift?: boolean;
+  /** an extra session on this day (e.g. a morning swim); 'none' also means no lifting */
+  second?: SecondSession | null;
 }
+
+export type SecondSession = 'am_swim' | 'pm_swim' | 'am_run' | 'pm_run' | 'spin';
 
 export interface WeekConfig {
   startDate: ISODate; // first day of the 7-day window

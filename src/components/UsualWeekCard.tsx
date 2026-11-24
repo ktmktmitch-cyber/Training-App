@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { fmtMinutes } from '../engine/dates';
 import type { DayConfig, GroupIntensity } from '../engine/types';
 import { useApp } from '../lib/store';
+import { SecondSessionSelect } from './SecondSessionSelect';
 import { Seg } from './ui';
 
 const DAYS: [number, string][] = [
@@ -24,7 +25,7 @@ export function UsualWeekCard({ onToast }: { onToast: (m: string) => void }) {
   const set = (dow: number, c: DayConfig | null) =>
     app.updateSettings((s) => {
       const u = { ...s.usualDays };
-      if (c && !(c.status === 'available' && c.maxMinutes == null && !c.noLift)) u[dow] = c;
+      if (c && !(c.status === 'available' && c.maxMinutes == null && !c.noLift && !c.second)) u[dow] = c;
       else delete u[dow];
       return { ...s, usualDays: u };
     });
@@ -83,6 +84,7 @@ export function UsualWeekCard({ onToast }: { onToast: (m: string) => void }) {
                 ]}
               />
               {kind === 'available' && (
+                <div className="row" style={{ gap: 8 }}>
                 <label className="field inline">
                   <span>Max</span>
                   <select className="select" value={c.maxMinutes ?? ''} onChange={(e) => set(dow, { ...c, status: 'available', maxMinutes: e.target.value ? Number(e.target.value) : null })} aria-label={`${name} max time`}>
@@ -93,6 +95,8 @@ export function UsualWeekCard({ onToast }: { onToast: (m: string) => void }) {
                     ))}
                   </select>
                 </label>
+                <SecondSessionSelect c={c} onChange={(patch) => set(dow, { ...c, status: 'available', ...patch })} label={`${name} second session`} />
+                </div>
               )}
               {kind === 'group' && c.group && (
                 <div className="row" style={{ gap: 6 }}>

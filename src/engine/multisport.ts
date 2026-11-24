@@ -12,7 +12,7 @@
 //    swims (CSS + aerobic/technique) on easier days — always keeping your rest days.
 import { diffDays, dow, fmtMinutes } from './dates';
 import { instantiate } from './planner';
-import type { Activity, ISODate, MacroWeek, Phase, PlannedDay, PlannedWorkout, Readiness, SportMode, WeekPlan } from './types';
+import type { Activity, ISODate, MacroWeek, Phase, PlannedDay, PlannedWorkout, Readiness, SecondSession, SportMode, WeekPlan } from './types';
 import { projectLoad, round } from './stats';
 import { getTemplate } from './workouts';
 
@@ -354,3 +354,37 @@ function fmtDow(d: ISODate): string {
   return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dow(d)];
 }
 
+
+const SECOND: Record<SecondSession, { sport: 'swim' | 'run' | 'ride'; when: 'AM' | 'PM'; easy: string; steady: string; min: number }> = {
+  am_swim: { sport: 'swim', when: 'AM', easy: 'swim_technique', steady: 'swim_endurance', min: 35 },
+  pm_swim: { sport: 'swim', when: 'PM', easy: 'swim_technique', steady: 'swim_endurance', min: 35 },
+  am_run: { sport: 'run', when: 'AM', easy: 'run_recovery', steady: 'run_easy', min: 30 },
+  pm_run: { sport: 'run', when: 'PM', easy: 'run_recovery', steady: 'run_easy', min: 30 },
+  spin: { sport: 'ride', when: 'PM', easy: 'recovery', steady: 'recovery', min: 40 },
+};
+
+/**
+ * Second sessions you asked for in your availability (e.g. a morning swim). Kept easy when the day
+ * already has a hard session — the main session carries the training stimulus; steady aerobic
+ * otherwise. Not added on days off or race days, or when that sport is already on the day.
+ */
+export function applySecondSessions(plan: WeekPlan, cfg: (d: ISODate) => { second?: SecondSession | null; status?: string } | undefined, weightKg: number | null, readiness: Readiness): WeekPlan {
+  let changed = false;
+  const days = plan.days.map((d) => {
+    const c = cfg(d.date);
+    const want = c?.second;
+    if (!want || d.status === 'off' || d.status === 'race') return d;
+    const spec = SECOND[want];
+    const sessions = [d.ride, ...(d.extras ?? [])].filter(Boolean) as PlannedWorkout[];
+    if (sessions.some((w) => (w.sport ?? 'ride') === spec.sport && (spec.sport !== 'ride' || w !== d.ride))) return d;
+    const hardDay = sessions.some((w) => w.key || w.intensity === 'hard') || readiness.status === 'red';
+    const t = getTemplate(hardDay ? spec.easy : spec.steady);
+    const w = instantiate(t, spec.min, 0, weightKg, undefined, [hardDay ? 'Kept easy — the day’s main session is the hard one.' : 'Steady aerobic second session.'], { sport: t.sport ?? 'ride' });
+    w.name = `${spec.when} · ${w.name}`;
+    changed = true;
+    return { ...d, extras: [...(d.extras ?? []), w] };
+  });
+  if (!changed) return plan;
+  const all = days.flatMap((d) => [d.ride, ...(d.extras ?? [])].filter(Boolean) as PlannedWorkout[]);
+  return { ...plan, days, totalMin: all.reduce((a, w) => a + w.durationMin, 0), totalTss: all.reduce((a, w) => a + w.tss, 0) };
+}

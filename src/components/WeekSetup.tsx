@@ -1,6 +1,7 @@
 import { addDays, dowShort, fmtMinutes, fromISO, range } from '../engine/dates';
 import type { DayConfig, DayStatus, GroupIntensity, ISODate, WeekConfig } from '../engine/types';
 import { WORKOUTS } from '../engine/workouts';
+import { SecondSessionSelect } from './SecondSessionSelect';
 import { Seg } from './ui';
 
 const CAPS = [null, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300, 360];
@@ -160,10 +161,7 @@ export function WeekSetup({ week, onChange, onSaveUsual, onResetUsual }: { week:
                         </div>
                       </>
                     )}
-                    <label className="check small" style={{ alignSelf: 'center' }}>
-                      <input type="checkbox" checked={!!c.noLift} onChange={(e) => set(d, { noLift: e.target.checked })} />
-                      No lifting
-                    </label>
+                    <SecondSessionSelect c={c} onChange={(patch) => set(d, patch)} label={`${dowShort(d)} second session`} />
                   </div>
                 )}
               </div>
