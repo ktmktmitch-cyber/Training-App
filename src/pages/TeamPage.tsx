@@ -53,7 +53,8 @@ export function TeamPage() {
   useEffect(() => {
     if (!isCoach || !t.team || t.deepProgress || autoLoaded.current) return;
     const ages = Object.values(t.deep).map((d) => Date.now() - new Date(d.fetchedAt).getTime());
-    if (!ages.length || Math.max(...ages) > 3 * 3600_000 || ok.some((r) => !t.deep[r.id])) {
+    // Reload when stale, when a rider is missing, or when any rider failed last time (they may have shared since)
+    if (!ages.length || Math.max(...ages) > 3 * 3600_000 || ok.some((r) => !t.deep[r.id] || t.deep[r.id].error)) {
       autoLoaded.current = true;
       t.loadDeep();
     }
@@ -436,7 +437,9 @@ export function TeamPage() {
                     ? r.hidden_strava > 0
                       ? `${r.hidden_strava} ride${r.hidden_strava === 1 ? '' : 's'} via Strava (hidden by intervals.icu)`
                       : d?.error
-                        ? 'details not shared with your key'
+                        ? d.notShared ?? /\b(401|403)\b|forbidden|permission/i.test(d.error)
+                          ? 'details not shared with your key'
+                          : 'couldn’t load details — tap Load details to retry'
                         : 'no rides in the last 4 weeks'
                     : null;
                   return (
@@ -457,7 +460,7 @@ export function TeamPage() {
                           )}
                       </div>
                       <span className="hrow-val tiny">
-                        {why ?? (f!.estimated ? (d?.error ? 'estimate · not shared' : 'estimate') : f!.shortage ? `${FOCUS_LABEL[f!.shortage]} short` : total ? 'balanced' : 'no data')}
+                        {why ?? (f!.estimated ? (d?.error ? (d.notShared ?? /\b(401|403)\b|forbidden|permission/i.test(d.error) ? 'estimate · not shared' : 'estimate · couldn’t load, retry') : 'estimate') : f!.shortage ? `${FOCUS_LABEL[f!.shortage]} short` : total ? 'balanced' : 'no data')}
                       </span>
                     </div>
                   );

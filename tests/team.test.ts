@@ -131,3 +131,12 @@ describe('load buckets without detailed data', () => {
     expect(riderMetrics(d.riders[1], asOf).loadFocus).toBeNull();
   });
 });
+
+import { isNotShared } from '../src/lib/team';
+describe('rider details errors', () => {
+  it('only calls a refusal "not shared"', () => {
+    expect(isNotShared(new Error('intervals.icu rejected the credentials (403). Check your API key and athlete ID.'))).toBe(true);
+    expect(isNotShared(new Error('Too Many Requests'))).toBe(false);
+    expect(isNotShared(new Error('Network error reaching intervals.icu (Failed to fetch).'))).toBe(false);
+  });
+});

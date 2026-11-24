@@ -168,6 +168,10 @@ export interface DeepRider {
   profile: AthleteProfile | null;
   fetchedAt: string;
   error?: string;
+  /** the error was intervals.icu refusing access (rider hasn't added you as coach) */
+  notShared?: boolean;
+  /** last good data kept after a temporary failure */
+  stale?: boolean;
   /** their intervals.icu calendar around today (sick/injured/holiday days, races, planned workouts) */
   events?: CalendarEvent[];
   /** from their synced app settings: planned breaks and how they've felt */

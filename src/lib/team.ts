@@ -14,6 +14,9 @@ export const DEFAULT_TEAM_URL = 'https://raw.githubusercontent.com/ktmktmitch-cy
 const K_TEAM = 'ta.team.v1';
 const K_DEEP = 'ta.teamdeep.v1';
 
+/** intervals.icu refused because the rider hasn't added this key's athlete as a coach. */
+export const isNotShared = (e: Error) => /\b(401|403)\b|forbidden|unauthori[sz]ed|permission|access denied/i.test(e.message);
+
 export async function fetchTeam(url: string): Promise<TeamData> {
   let res: Response;
   try {
@@ -121,7 +124,12 @@ export function useTeam(): TeamState {
       while (queue.length) {
         const id = queue.shift()!;
         try {
-          const d = await fetchAthleteData(conn, id, addDays(asOf, -63), asOf);
+          // One retry after a short pause for anything but "not shared" (throttling, network blips)
+          const d = await fetchAthleteData(conn, id, addDays(asOf, -63), asOf).catch(async (e: Error) => {
+            if (isNotShared(e)) throw e;
+            await new Promise((r) => setTimeout(r, 1500));
+            return fetchAthleteData(conn, id, addDays(asOf, -63), asOf);
+          });
           // Calendar (sick/injured/holiday days) and their synced app settings (planned breaks) — best effort
           const rc = { ...conn, athleteId: id };
           const [events, doc] = await Promise.all([fetchEvents(rc, addDays(asOf, -28), addDays(asOf, 90)).catch(() => undefined), readDoc(rc).catch(() => null)]);
@@ -138,7 +146,11 @@ export function useTeam(): TeamState {
             fetchedAt: new Date().toISOString(),
           };
         } catch (e) {
-          out[id] = { activities: [], wellness: [], profile: null, fetchedAt: new Date().toISOString(), error: (e as Error).message };
+          const err = e as Error;
+          const prev = out[id];
+          // Keep the last good data if this was just a temporary failure
+          if (prev && !prev.error && !isNotShared(err)) out[id] = { ...prev, stale: true };
+          else out[id] = { activities: [], wellness: [], profile: null, fetchedAt: new Date().toISOString(), error: err.message, notShared: isNotShared(err) };
         }
         done++;
         setDeepProgress({ done, total: ids.length });
