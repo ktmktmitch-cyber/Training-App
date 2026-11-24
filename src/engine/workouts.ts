@@ -1274,7 +1274,37 @@ export const WORKOUTS: WorkoutTemplate[] = [
 ];
 
 /** Bike workouts (WORKOUTS) plus running and swimming ones — the bike planner only ever picks from WORKOUTS. */
-export const ALL_WORKOUTS: WorkoutTemplate[] = [...WORKOUTS, ...RUN_SWIM_WORKOUTS];
+// ---------- Cadence targets ----------
+// Sessions that set their own cadence (climbing, torque, spin-ups, sprints from slow) keep it. Elsewhere
+// hard efforts get an evidence-informed range: trained cyclists self-select ~85-95 rpm at threshold;
+// higher cadence for VO2max/anaerobic work lowers the force per pedal stroke and delays muscular
+// fatigue; sprints peak at ~110-130 rpm. Tests and easy/endurance riding stay self-selected.
+const NO_CADENCE = new Set(['ftp_test', 'ramp_test', 'test_8min', 'test_cp', 'sprint_test', 'recovery', 'endurance', 'durability']);
+const CADENCE_OVERRIDE: Record<string, string> = { hillclimb_tt: '70-85rpm', gravel_sim: '80-90rpm', xc_start: '90-110rpm' };
+
+export function cadenceFor(templateId: string, s: Step): string | undefined {
+  if (s.cadence || NO_CADENCE.has(templateId)) return s.cadence;
+  const p = (s.low + s.high) / 2;
+  if (p < 76 || s.ramp) return undefined; // easy riding, warm-up ramps: ride by feel
+  if (CADENCE_OVERRIDE[templateId]) return CADENCE_OVERRIDE[templateId];
+  if (p >= 150) return '100-120rpm';
+  if (p >= 120) return '95-110rpm';
+  if (p >= 106) return '95-105rpm';
+  return '85-95rpm';
+}
+
+function withCadence(t: WorkoutTemplate): WorkoutTemplate {
+  if ((t.sport ?? 'ride') !== 'ride') return t;
+  return {
+    ...t,
+    build(durationMin, level) {
+      const r = t.build(durationMin, level);
+      return { ...r, blocks: r.blocks.map((b) => ({ ...b, steps: b.steps.map((st) => { const c = cadenceFor(t.id, st); return c ? { ...st, cadence: c } : st; }) })) };
+    },
+  };
+}
+
+export const ALL_WORKOUTS: WorkoutTemplate[] = [...WORKOUTS.map(withCadence), ...RUN_SWIM_WORKOUTS];
 export const WORKOUT_BY_ID: Record<string, WorkoutTemplate> = Object.fromEntries(ALL_WORKOUTS.map((w) => [w.id, w]));
 export const sportOf = (t: { sport?: Sport } | null | undefined): Sport => t?.sport ?? 'ride';
 

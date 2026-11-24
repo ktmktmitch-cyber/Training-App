@@ -95,6 +95,16 @@ function intensityOf(blockName: string | undefined, low: number, high: number, i
   return 0;
 }
 
+/** "95-105rpm" → [95, 105]; "100+rpm" → [100, 120]; "90rpm" → [85, 95]. */
+export function cadenceRange(c: string | undefined): [number, number] | null {
+  const m = c?.match(/(\d+)\s*(?:-\s*(\d+)|(\+))?/);
+  if (!m) return null;
+  const a = Number(m[1]);
+  if (m[2]) return [a, Number(m[2])];
+  if (m[3]) return [a, a + 20];
+  return [a - 5, a + 5];
+}
+
 function toFitSteps(blocks: Block[]): FitStep[] {
   const steps: FitStep[] = [];
   blocks.forEach((b, bi) => {
@@ -102,7 +112,7 @@ function toFitSteps(blocks: Block[]): FitStep[] {
     b.steps.forEach((st, si) => {
       const label = st.label ?? (b.name && si === 0 ? b.name : '');
       steps.push({
-        name: `${label}${st.cadence ? ` ${st.cadence}` : ''}`.trim().slice(0, 15),
+        name: (label || (st.cadence ? st.cadence : '')).trim().slice(0, 15),
         kind: 'time',
         seconds: st.durationSec,
         low: Math.round(st.low),
@@ -154,10 +164,15 @@ export function workoutToFit(w: PlannedWorkout, targets?: ExportTargets, created
     [5, 4, UINT32], // custom target low
     [6, 4, UINT32], // custom target high
     [7, 1, ENUM], // intensity
+    [19, 1, ENUM], // secondary target type (3 = cadence)
+    [20, 4, UINT32], // secondary target value
+    [21, 4, UINT32], // secondary custom target low (rpm)
+    [22, 4, UINT32], // secondary custom target high (rpm)
   ];
   body.definition(2, 27, step);
+  const NONE = 0xffffffff;
   steps.forEach((st, i) => {
-    if (st.kind === 'repeat') body.data(2, step, [i, '', 6, st.repeatFrom!, 2, st.repeatCount!, 0, 0, 0]);
+    if (st.kind === 'repeat') body.data(2, step, [i, '', 6, st.repeatFrom!, 2, st.repeatCount!, 0, 0, 0, 255, NONE, NONE, NONE]);
     else {
       // FIT target values: power 0-1000 = % FTP, >1000 = watts + 1000; heart rate >100 = bpm + 100
       let type = 4;
@@ -189,7 +204,9 @@ export function workoutToFit(w: PlannedWorkout, targets?: ExportTargets, created
         lo = Math.round((st.low! * targets.ftp) / 100) + 1000;
         hi = Math.round((st.high! * targets.ftp) / 100) + 1000;
       }
-      body.data(2, step, [i, name, 0, Math.round(st.seconds! * 1000), type, 0, lo, hi, st.intensity!]);
+      // Cadence as a secondary target (shown on Garmin/Wahoo head units alongside power/HR)
+      const cad = !isRun ? cadenceRange(st.step?.cadence) : null;
+      body.data(2, step, [i, name, 0, Math.round(st.seconds! * 1000), type, 0, lo, hi, st.intensity!, cad ? 3 : 255, cad ? 0 : NONE, cad ? cad[0] : NONE, cad ? cad[1] : NONE]);
     }
   });
 

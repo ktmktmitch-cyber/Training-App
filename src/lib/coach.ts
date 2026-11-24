@@ -6,6 +6,7 @@ import type { TeamRider } from '../engine/team';
 import type { AthleteProfile, ISODate } from '../engine/types';
 import type { WorkoutTemplate } from '../engine/workouts';
 import { COACH_PREFIX, fetchRiderCalendar, pushEvents, type Connection } from './intervals';
+import { flatten, readDoc, restamp, unflatten, writeDoc, type SyncDoc } from './cloudSync';
 
 /** tacoach-<date>-<templateId>-L<level>-<rand>: lets the rider's app rebuild the exact workout with their own numbers. */
 export function coachExternalId(date: ISODate, templateId: string, level: number): string {
@@ -81,4 +82,24 @@ export async function sendToRiders(
   };
   await Promise.all([worker(), worker(), worker()]);
   return riders.map((r) => out.find((x) => x.rider.id === r.id)!);
+}
+
+/** A rider's synced app settings (from the settings note on their intervals.icu calendar). */
+export async function readRiderSettings(conn: Connection, athleteId: string): Promise<{ settings: Record<string, unknown>; savedAt: number | null; device: string | null }> {
+  const d = await readDoc({ ...conn, athleteId });
+  return { settings: (d?.data.settings ?? {}) as Record<string, unknown>, savedAt: d?.savedAt ?? null, device: d?.device ?? null };
+}
+
+/**
+ * Change a rider's app settings and write them back (re-reads first so nothing the rider changed
+ * meanwhile is lost; only the fields you change get new timestamps, so the merge keeps theirs).
+ */
+export async function updateRiderSettings(conn: Connection, athleteId: string, mutate: (settings: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
+  const c = { ...conn, athleteId };
+  const cur: SyncDoc = (await readDoc(c)) ?? { app: 'trainingapp', v: 1, savedAt: 0, device: 'coach', stamps: {}, data: { settings: {} } };
+  const before = flatten(cur.data);
+  const data = { ...cur.data, settings: mutate(JSON.parse(JSON.stringify(cur.data.settings ?? {}))) };
+  const after = flatten(data);
+  const stamps = restamp(before, after, cur.stamps ?? {});
+  await writeDoc(c, { ...cur, savedAt: Date.now(), device: 'coach', stamps, data: unflatten(after) });
 }

@@ -10,6 +10,7 @@ import type { ReadinessStatus } from '../engine/types';
 import { useApp } from '../lib/store';
 import { useTeam } from '../lib/team';
 import { CoachSchedule } from '../components/CoachSchedule';
+import { CoachTeamSettings } from '../components/CoachTeamSettings';
 import { RiderSettingsPanel } from '../components/RiderSettingsPanel';
 import { ConnectPrompt } from '../components/EmptyStates';
 import { CoachReadinessTable } from '../components/CoachReadinessTable';
@@ -195,6 +196,16 @@ export function TeamPage() {
           </summary>
           <div style={{ marginTop: 10 }}>
             <CoachSchedule riders={ok} onToast={showToast} />
+          </div>
+        </details>
+      )}
+      {isCoach && (
+        <details className="card more coach-sched">
+          <summary>
+            <b>Coach: team training settings</b> <span className="tiny muted">strength goal, periodization, intensity, loading, rest weeks</span>
+          </summary>
+          <div style={{ marginTop: 10 }}>
+            <CoachTeamSettings riders={ok} onToast={showToast} />
           </div>
         </details>
       )}
