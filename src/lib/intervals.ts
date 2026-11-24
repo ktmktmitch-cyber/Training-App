@@ -133,6 +133,7 @@ interface RawEvent {
   external_id?: string | null;
   moving_time?: number | null;
   icu_training_load?: number | null;
+  description?: string | null;
 }
 
 // ---------- normalisers ----------
@@ -245,6 +246,7 @@ export function normalizeEvent(e: RawEvent): CalendarEvent {
     externalId: e.external_id ?? null,
     plannedSec: e.moving_time ?? null,
     plannedTss: e.icu_training_load ?? null,
+    description: e.description ?? null,
   };
 }
 
@@ -309,6 +311,19 @@ export async function fetchHistory(conn: Connection, oldest: ISODate, newest: IS
     call<RawEvent[]>(conn, `/athlete/${aid(conn)}/events?oldest=${oldest}&newest=${newest}`),
   ]);
   return { activities: (activitiesRaw ?? []).map(normalizeActivity).filter((a) => a.date), events: (eventsRaw ?? []).map(normalizeEvent) };
+}
+
+/** Prefix for workouts a coach schedules from the Team tab (kept distinct from the rider's own pushes). */
+export const COACH_PREFIX = 'tacoach';
+
+/** A teammate's profile and calendar (coach access needed on intervals.icu). */
+export async function fetchRiderCalendar(conn: Connection, athleteId: string, oldest: ISODate, newest: ISODate) {
+  const c = { ...conn, athleteId };
+  const [athlete, eventsRaw] = await Promise.all([
+    call<RawAthlete>(c, `/athlete/${aid(c)}`),
+    call<RawEvent[]>(c, `/athlete/${aid(c)}/events?oldest=${oldest}&newest=${newest}`),
+  ]);
+  return { profile: normalizeAthlete(athlete, null, null), events: (eventsRaw ?? []).map(normalizeEvent).sort((a, b) => a.date.localeCompare(b.date)) };
 }
 
 /** One athlete's profile, wellness and activities (works for coached athletes with the coach's key). */

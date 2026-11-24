@@ -5,10 +5,11 @@ import { FORM_ZONES } from '../engine/status';
 import { POWER_KEY_LABEL, POWER_KEYS, type RiderMetrics, type TeamRider } from '../engine/team';
 import { BarChart, LineChart } from '../components/charts';
 import { LoadFocusCard } from '../components/insights';
-import { StatusIcon } from '../components/ui';
+import { StatusIcon, useToast } from '../components/ui';
 import type { ReadinessStatus } from '../engine/types';
 import { useApp } from '../lib/store';
 import { useTeam } from '../lib/team';
+import { CoachSchedule } from '../components/CoachSchedule';
 
 const dash = '—';
 const h1 = (v: number | null | undefined) => (v == null ? dash : v.toFixed(1));
@@ -38,6 +39,7 @@ export function TeamPage() {
   const meId = app.account?.id ?? (app.data.source === 'intervals' ? app.data.profile?.id : null) ?? null;
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'hours_this_week', dir: -1 });
   const [sel, setSel] = useState<string | null>(null);
+  const [toast, showToast] = useToast();
   const detailRef = useRef<HTMLDivElement>(null);
 
   const ok = useMemo(() => (team?.riders ?? []).filter((r) => r.state === 'ok'), [team]);
@@ -144,6 +146,18 @@ export function TeamPage() {
               : 'Add your intervals.icu (coach) API key in Settings to enable it.'}
         </div>
       )}
+
+      {t.source === 'url' && app.canPush && (!app.account || app.account.role === 'coach') && (
+        <details className="card more coach-sched">
+          <summary>
+            <b>Coach: schedule workouts for your riders</b>
+          </summary>
+          <div style={{ marginTop: 10 }}>
+            <CoachSchedule riders={ok} onToast={showToast} />
+          </div>
+        </details>
+      )}
+      {toast}
 
       <div className="team-tiles">
         {me && (

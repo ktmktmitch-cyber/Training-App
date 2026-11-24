@@ -113,6 +113,7 @@ export interface CalendarEvent {
   externalId?: string | null;
   plannedSec?: number | null;
   plannedTss?: number | null;
+  description?: string | null;
 }
 
 // ---------- User settings ----------
@@ -182,7 +183,7 @@ export interface MobilityPrefs {
   band: boolean;
 }
 
-export type DayStatus = 'available' | 'off' | 'group' | 'pinned' | 'race';
+export type DayStatus = 'available' | 'off' | 'group' | 'pinned' | 'race' | 'scheduled';
 export type GroupIntensity = 'social' | 'tempo' | 'hard' | 'race';
 
 export interface DayConfig {
@@ -191,6 +192,8 @@ export interface DayConfig {
   group?: { durationMin: number; intensity: GroupIntensity; name?: string };
   pinned?: { workoutId: string; durationMin: number; level?: number };
   race?: { name: string; durationMin: number; priority: 'A' | 'B' | 'C' };
+  /** a workout already on your intervals.icu calendar (from a coach, TrainerRoad, etc.) */
+  scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null };
   noLift?: boolean;
 }
 
@@ -264,7 +267,7 @@ export interface PlannedWorkout {
   why: string[]; // rationale lines
   fueling: string;
   key: boolean; // counts as a key/quality session
-  fixed?: 'group' | 'pinned' | 'race';
+  fixed?: 'group' | 'pinned' | 'race' | 'calendar';
   indoorAlt?: string;
   progression?: { zone: string; workoutLevel: number; athleteLevel: number | null; difficulty: string | null };
   level?: number;

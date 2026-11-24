@@ -109,7 +109,7 @@ export function dayToIcuEvents(day: PlannedDay, _profile: AthleteProfile, mode: 
   const start = `${day.date}T00:00:00`;
   const r = day.ride;
   // Don't duplicate events the athlete already has (group rides are added as notes-only workouts, races are on the calendar)
-  if (r && r.category !== 'race') {
+  if (r && r.category !== 'race' && r.fixed !== 'calendar') {
     out.push({
       category: 'WORKOUT',
       start_date_local: start,
