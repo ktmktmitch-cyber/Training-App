@@ -7,6 +7,7 @@ import { computeLoadFocus, type LoadFocus } from '../engine/loadFocus';
 import { analyzePerformance, type PerformanceAnalysis } from '../engine/performance';
 import { computeStaleness, type Staleness } from '../engine/staleness';
 import { isHardSession } from '../engine/trends';
+import { heatAdaptation, type HeatAdaptation } from '../engine/heat';
 import { estimateVo2, type Vo2Estimate } from '../engine/vo2max';
 import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
@@ -182,6 +183,7 @@ interface Ctx {
   compliance: ComplianceDay[];
   power: PowerProfile | null;
   powerCurves: PowerCurve[];
+  heat: HeatAdaptation;
   cloud: CloudStatus;
   cloudSyncNow: () => Promise<void>;
   /** intervals.icu calendar + races added in the app */
@@ -570,6 +572,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [data.activities, asOf, macro, startDate, settings.goal.eventType]);
   const performance = useMemo(() => analyzePerformance(data.activities, data.wellness, effProfile, asOf), [data.activities, data.wellness, effProfile, asOf]);
   const impacts = useMemo(() => tagImpacts(journal, data.wellness, asOf), [journal, data.wellness, asOf]);
+  const heat = useMemo(() => heatAdaptation(data.activities, performance.model, asOf), [data.activities, performance.model, asOf]);
   const status = useMemo(() => trainingStatus(data.wellness, readiness, asOf, performance.improvement), [data.wellness, readiness, asOf, performance.improvement]);
   const vo2History = useMemo(
     () => data.wellness.filter((w) => w.vo2max && diffDays(asOf, w.date) >= 0 && diffDays(asOf, w.date) <= 180).map((w) => ({ date: w.date, vo2: w.vo2max as number })),
@@ -764,6 +767,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pushWorkout,
     getConnection: connection,
     exportDefaults,
+    heat,
     cloud,
     cloudSyncNow: () => cloudSyncNow(),
     events,

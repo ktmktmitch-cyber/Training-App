@@ -9,6 +9,7 @@ import { JournalCard } from '../components/JournalCard';
 import { BestEffortsCard, EfficiencyCard, FtpCard, ImprovementCard, StalenessCard, Vo2Card } from '../components/performance';
 import { Seg, useToast } from '../components/ui';
 import { TAG_BY_KEY } from '../engine/journal';
+import { HeatCard } from '../components/HeatCard';
 import { useApp } from '../lib/store';
 
 function rolling(vals: (number | null)[], n: number): (number | null)[] {
@@ -111,6 +112,7 @@ export function TrendsPage() {
       />
       {tab === 'performance' && (
         <>
+          <HeatCard heat={app.heat} />
           <div className="grid-2">
             <FtpCard
               perf={app.performance}
