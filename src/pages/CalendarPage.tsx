@@ -135,7 +135,7 @@ export function CalendarPage() {
           const done = wk.flatMap((d) => actsByDay[d] ?? []);
           const hrs = done.reduce((a, x) => a + x.movingSec, 0) / 3600;
           const tss = done.reduce((a, x) => a + (x.tss ?? 0), 0);
-          const planned = wk.map((d) => planByDay[d]?.ride).filter(Boolean);
+          const planned = wk.flatMap((d) => [planByDay[d]?.ride, ...(planByDay[d]?.extras ?? [])]).filter(Boolean);
           const plannedMin = planned.reduce((a, r) => a + (r?.durationMin ?? 0), 0);
           const future = diffDays(wk[0], asOf) > 0;
           return (
@@ -179,6 +179,12 @@ export function CalendarPage() {
                         {p.ride.name} <span className="muted">· {fmtMinutes(p.ride.durationMin)}</span>
                       </span>
                     )}
+                    {!acts.length &&
+                      (p?.extras ?? []).map((x, i) => (
+                        <span key={i} className={`cal-item plan s-${x.sport === 'swim' ? 'swim' : x.sport === 'run' ? 'run' : 'ride'}`}>
+                          {x.sport === 'swim' ? 'Swim' : x.sport === 'run' ? 'Run' : 'Ride'} <span className="muted">· {fmtMinutes(x.durationMin)}</span>
+                        </span>
+                      ))}
                     {p?.strength && !acts.some((a) => a.isStrength) && <span className="cal-item plan">Strength</span>}
                     {plannedEv && (
                       <span className="cal-item plan">
@@ -289,7 +295,7 @@ function DayDetail({ date, acts, evs, planned, snapshot, onToast }: { date: ISOD
         </p>
       )}
 
-      {!past && planned && (planned.ride || planned.strength || planned.mobility) && (
+      {!past && planned && (planned.ride || planned.strength || planned.mobility || (planned.extras ?? []).length > 0) && (
         <div className="stack">
           <h3>Planned</h3>
           {planned.ride && (
@@ -303,10 +309,24 @@ function DayDetail({ date, acts, evs, planned, snapshot, onToast }: { date: ISOD
               <p className="small ink2" style={{ margin: 0 }}>
                 {planned.ride.purpose}
               </p>
-              {planned.ride.blocks.length > 0 && <StepsTable blocks={planned.ride.blocks} ftp={app.ftp} profile={app.profile} mode={app.settings.prefs.targetMode} />}
+              {planned.ride.blocks.length > 0 && <StepsTable blocks={planned.ride.blocks} ftp={app.ftp} profile={app.profile} mode={app.settings.prefs.targetMode} sport={planned.ride.sport ?? 'ride'} paceMps={planned.ride.sport === 'run' ? (app.settings.prefs.runPaceMps ?? app.profile?.runThresholdMps ?? null) : null} />}
               <ExportBar workout={planned.ride} date={date} onDone={onToast} />
             </div>
           )}
+          {(planned.extras ?? []).map((x, i) => (
+            <div key={i} className="stack" style={{ gap: 8 }}>
+              <div>
+                <b>
+                  {x.sport === 'swim' ? 'Swim' : x.sport === 'run' ? 'Run' : 'Ride'} · {x.name}
+                </b>{' '}
+                <span className="small muted">
+                  · {fmtMinutes(x.durationMin)} · {x.tss} TSS
+                </span>
+              </div>
+              {x.blocks.length > 0 && <StepsTable blocks={x.blocks} ftp={app.ftp} profile={app.profile} mode={app.settings.prefs.targetMode} sport={x.sport ?? 'ride'} paceMps={x.sport === 'run' ? (app.settings.prefs.runPaceMps ?? app.profile?.runThresholdMps ?? null) : x.sport === 'swim' ? (app.settings.prefs.swimCssMps ?? app.profile?.swimCssMps ?? null) : null} />}
+              <ExportBar workout={x} date={date} onDone={onToast} compact />
+            </div>
+          ))}
           {planned.strength && (
             <div className="small">
               <b>Strength:</b> {planned.strength.title} · {planned.strength.durationMin} min

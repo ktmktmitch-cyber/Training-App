@@ -59,6 +59,7 @@ interface RawSport {
   max_hr: number | null;
   power_zones: number[] | null;
   hr_zones: number[] | null;
+  threshold_pace?: number | null;
   mmp_model?: { ftp?: number; criticalPower?: number; wPrime?: number; pMax?: number } | null;
 }
 interface RawAthlete {
@@ -155,7 +156,15 @@ export function normalizeAthlete(a: RawAthlete, latestEftp: number | null, lates
     cp: ride?.mmp_model?.criticalPower ?? null,
     wPrime: latest?.wPrime ?? ride?.mmp_model?.wPrime ?? null,
     pMax: latest?.pMax ?? ride?.mmp_model?.pMax ?? null,
+    // intervals.icu stores threshold pace as a speed (m/s); ignore anything implausible
+    runThresholdMps: plausible(a.sportSettings?.find((s) => s.types?.includes('Run'))?.threshold_pace, 2, 7),
+    runLthr: a.sportSettings?.find((s) => s.types?.includes('Run'))?.lthr ?? null,
+    swimCssMps: plausible(a.sportSettings?.find((s) => s.types?.includes('Swim'))?.threshold_pace, 0.5, 2.5),
   };
+}
+
+function plausible(v: number | null | undefined, lo: number, hi: number): number | null {
+  return v != null && v >= lo && v <= hi ? v : null;
 }
 
 export function normalizeWellness(w: RawWellness): Wellness {

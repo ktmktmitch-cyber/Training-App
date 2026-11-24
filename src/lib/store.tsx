@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { addDays, diffDays, dow, range, today } from '../engine/dates';
 import { computeCompliance, missedKeySessions, type ComplianceDay, type PlanSnapshot } from '../engine/compliance';
-import { allExternalIdsFor, dayToIcuEvents, workoutDescription, EXTERNAL_PREFIX } from '../engine/icuExport';
+import { allExternalIdsFor, dayToIcuEvents, ICU_TYPE, workoutDescription, EXTERNAL_PREFIX } from '../engine/icuExport';
 import { affectedMornings, tagImpacts, type Journal, type MorningEffect, type TagImpact, type TagKey } from '../engine/journal';
 import { computeLoadFocus, type LoadFocus } from '../engine/loadFocus';
 import { analyzePerformance, type PerformanceAnalysis } from '../engine/performance';
@@ -13,6 +13,7 @@ import { computeProgression, type Feedback, type Progression } from '../engine/p
 import { trainingStatus, type TrainingStatus } from '../engine/status';
 import { buildMacroPlan, macroWeekFor, withAppRaces, withAwayWeeks } from '../engine/periodization';
 import { planWeek } from '../engine/planner';
+import { applySports, bikeHoursFor } from '../engine/multisport';
 import { targetsLabel, type ExportTargets } from '../engine/targets';
 import { assessReadiness } from '../engine/readiness';
 import { computeTrends } from '../engine/trends';
@@ -488,12 +489,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const powerCurves = useMemo(() => data.powerCurves ?? [], [data.powerCurves]);
   const power = useMemo(() => powerProfile(effProfile, powerCurves), [effProfile, powerCurves]);
   const limiter = power ? ({ sprint: 'anaerobic', anaerobic: 'anaerobic', vo2: 'vo2max', threshold: 'threshold' } as const)[power.limiter] : null;
-  const plan = useMemo(
+  const sport = settings.prefs.sport ?? 'cycling';
+  const basePlan = useMemo(
     () =>
       planWeek({
         startDate,
         asOf,
-        week,
+        week: sport === 'run_bike' || sport === 'triathlon' ? { ...week, hours: bikeHoursFor(sport, week.hours) } : week,
         goal: settings.goal,
         macro,
         prefs: settings.prefs,
@@ -520,6 +522,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }),
     [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, events, progression, loadFocus, carryOver, limiter],
   );
+  const plan = useMemo(
+    () =>
+      applySports({
+        plan: basePlan,
+        sport,
+        hours: week.hours,
+        macroWeek: basePlan.macroWeek,
+        readiness,
+        activities: data.activities,
+        asOf,
+        weightKg: effProfile?.weightKg ?? null,
+        minRestDays: settings.prefs.minRestDays,
+      }),
+    [basePlan, sport, week.hours, readiness, data.activities, asOf, effProfile, settings.prefs.minRestDays],
+  );
 
   // Remember what was planned (today onward) so compliance works even without pushing to intervals.icu
   useEffect(() => {
@@ -543,12 +560,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const ev = {
         category: 'WORKOUT' as const,
         start_date_local: `${date}T00:00:00`,
-        type: 'Ride',
+        type: ICU_TYPE[w.sport ?? 'ride'],
         name: w.name,
         description: workoutDescription(w, settings.prefs.targetMode, targets ? { targets, icuLthr: profile?.lthr ?? null } : undefined),
         moving_time: Math.round(w.durationMin * 60),
         icu_training_load: w.tss,
-        external_id: `${EXTERNAL_PREFIX}-${date}-ride`,
+        external_id: `${EXTERNAL_PREFIX}-${date}-${(w.sport ?? 'ride') === 'ride' ? 'ride' : 'x0'}`,
       };
       await pushEvents(conn, [ev], []);
       return `Sent “${w.name}” to intervals.icu for ${date}${targets ? ` (${targetsLabel(targets)})` : ''}. It will sync to Garmin if “Upload planned workouts” is on.`;

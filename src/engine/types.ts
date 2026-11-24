@@ -41,6 +41,9 @@ export interface AthleteProfile {
   cp?: number | null; // critical power (W)
   wPrime?: number | null; // J
   pMax?: number | null; // W
+  runThresholdMps?: number | null; // threshold running speed (m/s) from intervals.icu
+  runLthr?: number | null;
+  swimCssMps?: number | null; // critical swim speed (m/s)
 }
 
 export interface Activity {
@@ -205,7 +208,12 @@ export interface WeekConfig {
 
 export type TargetMode = 'power' | 'hr';
 
+export type SportMode = 'cycling' | 'running' | 'run_bike' | 'triathlon';
+
 export interface PlannerPrefs {
+  sport?: SportMode; // default cycling
+  runPaceMps?: number | null; // your threshold run pace (overrides intervals.icu)
+  swimCssMps?: number | null; // your CSS (overrides intervals.icu)
   longRideDay: 'sat' | 'sun' | 'auto';
   minRestDays: 0 | 1 | 2;
   targetMode: TargetMode;
@@ -271,6 +279,7 @@ export interface PlannedWorkout {
   indoorAlt?: string;
   progression?: { zone: string; workoutLevel: number; athleteLevel: number | null; difficulty: string | null };
   level?: number;
+  sport?: 'ride' | 'run' | 'swim'; // default ride
 }
 
 export interface StrengthExercise {
@@ -302,6 +311,8 @@ export interface PlannedDay {
   ride: PlannedWorkout | null;
   strength: StrengthSession | null;
   mobility?: MobilitySession | null;
+  /** run / swim sessions (and brick runs) alongside or instead of the ride */
+  extras?: PlannedWorkout[];
   notes: string[];
   status: DayStatus;
 }

@@ -156,6 +156,7 @@ export function instantiate(
     fueling: '',
     key: t.key,
     level: lvl,
+    sport: t.sport ?? 'ride',
     progression: wl ? { zone: wl.zone, workoutLevel: wl.level, athleteLevel: pl, difficulty } : undefined,
     ...overrides,
   };
@@ -783,7 +784,7 @@ export interface Alternative {
  * alternative suggestions and TrainerRoad's easier/harder alternates).
  */
 export function workoutAlternatives(w: PlannedWorkout, progression: Progression | undefined, weightKg: number | null): Alternative[] {
-  if (w.fixed === 'group' || w.fixed === 'calendar' || w.category === 'race' || !WORKOUT_BY_ID[w.templateId]) return [];
+  if (w.fixed === 'group' || w.fixed === 'calendar' || w.category === 'race' || !WORKOUT_BY_ID[w.templateId] || (w.sport ?? 'ride') !== 'ride') return [];
   const t = getTemplate(w.templateId);
   const zone = TEMPLATE_ZONE[t.id];
   const pl = zone && zone !== 'endurance' && progressionCapable(t) && progression?.[zone]?.source === 'history' ? progression[zone].level : null;

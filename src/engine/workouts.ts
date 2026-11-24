@@ -2,6 +2,8 @@
 // progression "levels" (more time-in-zone as a block progresses). Targets are % of FTP.
 import type { Block, Intensity, Step, WorkoutCategory } from './types';
 
+import { RUN_SWIM_WORKOUTS, type Sport } from './runswim';
+
 export interface BuildResult {
   name: string;
   blocks: Block[];
@@ -19,6 +21,7 @@ export interface WorkoutTemplate {
   purpose: string;
   science?: string;
   tags?: string[]; // 'indoor', 'outdoor', 'classic', 'evidence', 'climbing', 'race', 'test'
+  sport?: Sport; // default 'ride'
   /** level is 0-based, already clamped. */
   build(durationMin: number, level: number): BuildResult;
 }
@@ -1270,7 +1273,10 @@ export const WORKOUTS: WorkoutTemplate[] = [
   raceWarmup,
 ];
 
-export const WORKOUT_BY_ID: Record<string, WorkoutTemplate> = Object.fromEntries(WORKOUTS.map((w) => [w.id, w]));
+/** Bike workouts (WORKOUTS) plus running and swimming ones — the bike planner only ever picks from WORKOUTS. */
+export const ALL_WORKOUTS: WorkoutTemplate[] = [...WORKOUTS, ...RUN_SWIM_WORKOUTS];
+export const WORKOUT_BY_ID: Record<string, WorkoutTemplate> = Object.fromEntries(ALL_WORKOUTS.map((w) => [w.id, w]));
+export const sportOf = (t: { sport?: Sport } | null | undefined): Sport => t?.sport ?? 'ride';
 
 export function getTemplate(id: string): WorkoutTemplate {
   const t = WORKOUT_BY_ID[id];

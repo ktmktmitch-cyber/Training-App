@@ -1432,3 +1432,6 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .weeks-off { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .weeks-off li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .weeks-off li:last-child { border-bottom: 0; }
+.cal-item.plan.s-run { border-left-color: var(--s2); }
+.cal-item.plan.s-swim { border-left-color: var(--s3); }
+.extra-session { border-top: 1px solid var(--border); padding-top: 10px; }

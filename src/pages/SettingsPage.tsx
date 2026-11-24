@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { PlannerPrefs, TargetMode } from '../engine/types';
+import { SportCard } from '../components/SportCard';
 import { Field, Seg, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { useApp } from '../lib/store';
@@ -68,6 +69,7 @@ export function SettingsPage() {
   return (
     <>
       <h1>Settings</h1>
+      <SportCard />
 
       {app.account && (
         <div className="card stack">
