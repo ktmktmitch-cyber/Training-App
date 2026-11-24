@@ -1435,3 +1435,28 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .cal-item.plan.s-run { border-left-color: var(--s2); }
 .cal-item.plan.s-swim { border-left-color: var(--s3); }
 .extra-session { border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* Library: two-week drop strip */
+.drop-strip { padding: 10px 12px; display: grid; gap: 8px; }
+.drop-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.drop-day {
+  position: relative; min-height: 52px; padding: 5px 6px; border-radius: 8px; border: 1px dashed var(--border-strong);
+  background: var(--surface); display: flex; flex-direction: column; gap: 2px; min-width: 0; cursor: default; font-size: 11px;
+}
+.drop-day.armed { cursor: pointer; }
+.drop-day.armed:hover, .drop-day:focus-visible { border-color: var(--accent); outline: none; }
+.drop-day.over { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+.drop-day.mine { border-style: solid; border-color: var(--accent); }
+.drop-day.today .drop-dow { color: var(--accent); }
+.drop-dow { font-weight: 700; color: var(--muted); }
+.drop-name { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; }
+.drop-clear { all: unset; position: absolute; top: 2px; right: 5px; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; }
+.drop-clear:hover { color: var(--ink); }
+.lib-card[draggable='true'] { cursor: grab; }
+.drag-handle { cursor: grab; user-select: none; }
+@media (min-width: 721px) {
+  .drop-strip { position: sticky; top: 64px; z-index: 5; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06); }
+}
+@media (max-width: 720px) {
+  .drop-day { min-height: 46px; padding: 3px 4px; font-size: 9.5px; }
+}
