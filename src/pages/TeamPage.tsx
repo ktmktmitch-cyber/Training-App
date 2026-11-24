@@ -10,6 +10,7 @@ import type { ReadinessStatus } from '../engine/types';
 import { useApp } from '../lib/store';
 import { useTeam } from '../lib/team';
 import { CoachSchedule } from '../components/CoachSchedule';
+import { RiderSettingsPanel } from '../components/RiderSettingsPanel';
 
 const dash = '—';
 const h1 = (v: number | null | undefined) => (v == null ? dash : v.toFixed(1));
@@ -40,6 +41,7 @@ export function TeamPage() {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'hours_this_week', dir: -1 });
   const [sel, setSel] = useState<string | null>(null);
   const [toast, showToast] = useToast();
+  const isCoach = t.source === 'url' && app.canPush && (!app.account || app.account.role === 'coach');
   const detailRef = useRef<HTMLDivElement>(null);
 
   const ok = useMemo(() => (team?.riders ?? []).filter((r) => r.state === 'ok'), [team]);
@@ -147,7 +149,7 @@ export function TeamPage() {
         </div>
       )}
 
-      {t.source === 'url' && app.canPush && (!app.account || app.account.role === 'coach') && (
+      {isCoach && (
         <details className="card more coach-sched">
           <summary>
             <b>Coach: send workouts to your riders</b>
@@ -309,7 +311,7 @@ export function TeamPage() {
         </p>
       </div>
 
-      <div ref={detailRef}>{selRider && <RiderDetail r={selRider} m={t.metrics[selRider.id]} riders={ok} onPick={setSel} />}</div>
+      <div ref={detailRef}>{selRider && <RiderDetail r={selRider} m={t.metrics[selRider.id]} riders={ok} onPick={setSel} coach={isCoach} />}</div>
 
       <div className="grid-2">
         <div className="card">
@@ -511,10 +513,15 @@ export function TeamPage() {
   );
 }
 
-function RiderDetail({ r, m, riders, onPick }: { r: TeamRider; m: RiderMetrics | undefined; riders: TeamRider[]; onPick: (id: string) => void }) {
+function RiderDetail({ r, m, riders, onPick, coach }: { r: TeamRider; m: RiderMetrics | undefined; riders: TeamRider[]; onPick: (id: string) => void; coach?: boolean }) {
   const trend = r.trend;
   return (
     <div className="card stack-lg hero">
+      {coach && !m?.readiness && (
+        <p className="tiny muted" style={{ margin: 0 }}>
+          Readiness, HRV and training status appear after “Load detailed metrics” at the top, for riders who’ve given you coach access on intervals.icu.
+        </p>
+      )}
       <div className="row">
         <h2 className="hero-title" style={{ margin: 0 }}>
           {r.rider}
@@ -720,6 +727,7 @@ function RiderDetail({ r, m, riders, onPick }: { r: TeamRider; m: RiderMetrics |
         </div>
       </div>
       <p className="tiny muted">Form zones: {FORM_ZONES.map((z) => z.label).join(' · ')}.</p>
+      {coach && <RiderSettingsPanel r={r} />}
     </div>
   );
 }

@@ -36,6 +36,10 @@ export function CloudSyncCard() {
           Sync settings now
         </button>
       </div>
+      <label className="check small">
+        <input type="checkbox" checked={Boolean(app.settings.shareJournalWithCoach)} onChange={(e) => app.updateSettings((s) => ({ ...s, shareJournalWithCoach: e.target.checked }))} />
+        <span>Let my coach see my journal (alcohol, sleep, illness… notes). Your coach can always see your training data and plan settings if you’ve added them on intervals.icu.</span>
+      </label>
       <p className="tiny muted">If two devices change different things, both are kept; if they change the same thing, the most recent change wins.</p>
     </div>
   );

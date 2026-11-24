@@ -65,6 +65,7 @@ export interface AppSettings {
   startOffset: 0 | 1; // plan from today (0) or tomorrow (1)
   teamUrl: string; // team-dashboard data/team.json
   cloudSync?: boolean; // sync settings across devices via intervals.icu (default on)
+  shareJournalWithCoach?: boolean; // let coaches see your journal in their Team tab (default off)
 }
 
 export interface DataState {
