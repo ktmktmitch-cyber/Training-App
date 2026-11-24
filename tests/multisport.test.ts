@@ -84,3 +84,49 @@ describe('triathlon and run + bike', () => {
     expect(all(p).every((w) => (w.sport ?? 'ride') === 'ride')).toBe(true);
   });
 });
+
+import { computeCompliance } from '../src/engine/compliance';
+import { isHardSession } from '../src/engine/trends';
+
+describe('every sport counts', () => {
+  const run = (over: Partial<Activity> = {}): Activity => ({ id: 'r', date: AS_OF, name: 'Run', type: 'Run', isRide: false, isStrength: false, movingSec: 3000, tss: 60, intensity: 0.9, normalizedPower: null, avgHr: 160, powerZoneSecs: null, hrZoneSecs: null, source: 'intervals', ...over });
+
+  it('hard runs and swims are hard sessions; lifting is not', () => {
+    expect(isHardSession(run())).toBe(true);
+    expect(isHardSession(run({ intensity: 0.7 }))).toBe(false);
+    expect(isHardSession(run({ type: 'Swim', intensity: 0.7, hrZoneSecs: [300, 600, 300, 900, 200, 0, 0] }))).toBe(true);
+    expect(isHardSession(run({ type: 'WeightTraining', isStrength: true, intensity: 1 }))).toBe(false);
+  });
+
+  it('planned vs done matches runs and swims', () => {
+    const c = computeCompliance([AS_OF], addDays(AS_OF, 1), [{ id: '1', date: AS_OF, category: 'WORKOUT', type: 'Run', name: 'Tempo run', plannedSec: 3000, plannedTss: 60 }], [run()], {});
+    expect(c[0].done.length).toBe(1);
+    expect(c[0].color).toBe('green');
+  });
+
+  it('intensity distribution includes runs (HR zones)', () => {
+    const t = computeTrends([run({ date: addDays(AS_OF, -2), intensity: 0.7, hrZoneSecs: [1200, 1500, 300, 0, 0, 0, 0] })], [], AS_OF);
+    expect(t.distribution28.source).toBe('hr');
+    expect(t.distribution28.low).toBeGreaterThan(0.8);
+  });
+
+  it('projected fitness and form include runs and swims', () => {
+    const tri = plan('triathlon', 10);
+    const cyc = plan('cycling', 10);
+    expect(tri.totalTss).toBe(all(tri).reduce((a, w) => a + w.tss, 0));
+    expect(tri.summary.some((s) => s.startsWith('Projected fitness (CTL, all sports)'))).toBe(true);
+    expect(tri.projectedCtl).not.toBeNull();
+    expect(cyc.summary.some((s) => s.includes('all sports'))).toBe(false);
+  });
+});
+
+describe('planned vs done by sport', () => {
+  it('compares a planned run with the run, not the ride on the same day', () => {
+    const d = '2026-09-20';
+    const ride: Activity = { id: 'a', date: d, name: 'Ride', type: 'Ride', isRide: true, isStrength: false, movingSec: 7200, tss: 54, intensity: 0.7, normalizedPower: 200, avgHr: 130, powerZoneSecs: null, hrZoneSecs: null, source: 'intervals' };
+    const r: Activity = { ...ride, id: 'b', type: 'Run', isRide: false, movingSec: 1320, tss: 39 };
+    const c = computeCompliance([d], '2026-09-21', [{ id: '1', date: d, category: 'WORKOUT', type: 'Run', name: 'Run', plannedSec: 1320, plannedTss: 39 }], [ride, r], {});
+    expect(c[0].done.map((x) => x.type)).toEqual(['Run']);
+    expect(c[0].color).toBe('green');
+  });
+});

@@ -403,7 +403,7 @@ export interface WeeklyLoad {
   weekStart: ISODate;
   hours: number;
   tss: number;
-  rides: number;
+  rides: number; runs?: number; swims?: number;
   strength: number;
 }
 

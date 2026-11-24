@@ -463,7 +463,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     for (const a of data.activities) byDay.set(a.date, (byDay.get(a.date) ?? 0) + (a.tss ?? 0));
     const daily = Array.from({ length: 42 }, (_, i) => addDays(asOf, -i)).map((d) => ({ date: d, load: byDay.get(d) ?? 0 }));
     const tsb = data.wellness.filter((w) => w.ctl != null && w.atl != null).map((w) => ({ date: w.date, tsb: (w.ctl as number) - (w.atl as number) }));
-    const rides = data.activities.filter((a) => a.isRide && diffDays(asOf, a.date) >= 0).sort((a, b) => b.date.localeCompare(a.date));
+    const rides = data.activities.filter((a) => !a.isStrength && diffDays(asOf, a.date) >= 0).sort((a, b) => b.date.localeCompare(a.date)); // any endurance session
     const hard = rides.find(isHardSession);
     const eftpF = performance.improvement.factors.find((f) => f.label.startsWith('eFTP'));
     const ctlF = performance.improvement.factors.find((f) => f.label.startsWith('Fitness'));
@@ -545,8 +545,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const n: Record<ISODate, PlanSnapshot> = {};
       for (const [d, v] of Object.entries(h)) if (diffDays(asOf, d) <= 60 && d < asOf) n[d] = v;
       for (const d of plan.days) {
-        if (d.date < asOf || !d.ride) continue;
-        n[d.date] = { date: d.date, name: d.ride.name, templateId: d.ride.templateId, durationMin: d.ride.durationMin, tss: d.ride.tss, key: d.ride.key };
+        const ws = [d.ride, ...(d.extras ?? [])].filter(Boolean) as PlannedWorkout[];
+        if (d.date < asOf || !ws.length) continue;
+        n[d.date] = { date: d.date, name: ws.map((w) => w.name).join(' + '), templateId: ws[0].templateId, durationMin: ws.reduce((a, w) => a + w.durationMin, 0), tss: ws.reduce((a, w) => a + w.tss, 0), key: ws.some((w) => w.key) };
       }
       return JSON.stringify(n) === JSON.stringify(h) ? h : n;
     });

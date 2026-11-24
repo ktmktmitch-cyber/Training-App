@@ -238,7 +238,7 @@ export function TrendsPage() {
         </div>
         <div className="card">
           <div className="card-head">
-            <h2>Weekly riding hours</h2>
+            <h2>Weekly training hours</h2>
             <span className="small muted">last 12 weeks</span>
           </div>
           <BarChart
@@ -256,7 +256,15 @@ export function TrendsPage() {
                     <b className="num">{w.hours} h</b> · <span className="num">{w.tss} TSS</span>
                   </div>
                   <div className="muted">
-                    {w.rides} rides · {w.strength} lifts
+                    {[
+                      [w.rides, 'ride'],
+                      [w.runs ?? 0, 'run'],
+                      [w.swims ?? 0, 'swim'],
+                      [w.strength, 'lift'],
+                    ]
+                      .filter(([n]) => (n as number) > 0)
+                      .map(([n, l]) => `${n} ${l}${n === 1 ? '' : 's'}`)
+                      .join(' · ') || 'no sessions'}
                   </div>
                 </>
               );

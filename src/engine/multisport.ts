@@ -13,6 +13,7 @@
 import { diffDays, dow, fmtMinutes } from './dates';
 import { instantiate } from './planner';
 import type { Activity, ISODate, MacroWeek, Phase, PlannedDay, PlannedWorkout, Readiness, SportMode, WeekPlan } from './types';
+import { projectLoad, round } from './stats';
 import { getTemplate } from './workouts';
 
 export const SPORT_LABEL: Record<SportMode, string> = { cycling: 'Cycling', running: 'Running', run_bike: 'Run + bike', triathlon: 'Triathlon' };
@@ -128,11 +129,26 @@ export function applySports(inp: SportsInput): WeekPlan {
   }
   if (red) summary.push('Recovery markers are down: quality runs/swims are swapped for easy ones this week.');
 
-  // Re-total the week across sports
+  // Re-total the week across sports, and re-project fitness/fatigue/form with every session
   const all = days.flatMap((d) => [d.ride, ...(d.extras ?? [])].filter(Boolean) as PlannedWorkout[]);
   const totalMin = all.reduce((a, w) => a + w.durationMin, 0);
   const totalTss = all.reduce((a, w) => a + w.tss, 0);
-  return { ...inp.plan, days, totalMin, totalTss, summary, warnings };
+  let { projectedCtl, projectedTsb } = inp.plan;
+  const ctl0 = inp.readiness.ctl;
+  const atl0 = inp.readiness.atl;
+  if (ctl0 != null && atl0 != null) {
+    const daily = days.map((d) => [d.ride, ...(d.extras ?? [])].reduce((a, w) => a + (w?.tss ?? 0), 0));
+    const proj = projectLoad(ctl0, atl0, daily);
+    projectedCtl = round(proj.ctl[proj.ctl.length - 1], 1);
+    projectedTsb = round(proj.ctl[proj.ctl.length - 1] - proj.atl[proj.atl.length - 1], 1);
+    const i = summary.findIndex((x) => x.startsWith('Projected fitness'));
+    const line = `Projected fitness (CTL, all sports) ${round(ctl0)} → ${round(projectedCtl)} (${projectedCtl - ctl0 >= 0 ? '+' : ''}${round(projectedCtl - ctl0, 1)}); form at week end ${projectedTsb >= 0 ? '+' : ''}${round(projectedTsb)}.`;
+    if (i >= 0) summary[i] = line;
+    else summary.push(line);
+    const j = summary.findIndex((x) => /riding \(/.test(x));
+    if (j >= 0) summary[j] = `${fmtMinutes(totalMin)} training across sports · ~${totalTss} TSS.`;
+  }
+  return { ...inp.plan, days, totalMin, totalTss, summary, warnings, projectedCtl, projectedTsb };
 }
 
 function convertToRuns(days: PlannedDay[], inp: SportsInput, summary: string[]) {

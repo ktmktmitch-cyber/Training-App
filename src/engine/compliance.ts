@@ -23,7 +23,18 @@ export interface ComplianceDay {
   label: string;
 }
 
-const RIDE_EVENT_TYPES = new Set(['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide']);
+// Every endurance sport counts for planned-vs-done; strength sessions are tracked separately
+const NOT_ENDURANCE = new Set(['WeightTraining', 'Workout', 'Yoga', 'Pilates']);
+
+/** ride / run / swim / other — so a planned run is compared with the run you did, not the ride */
+export function sportFamily(type: string | null | undefined): string {
+  const t = (type ?? '').toLowerCase();
+  if (!t) return 'any';
+  if (t.includes('ride') || t.includes('cycl') || t === 'velomobile') return 'ride';
+  if (t.includes('run') || t === 'walk' || t === 'hike') return 'run';
+  if (t.includes('swim')) return 'swim';
+  return 'other';
+}
 
 export function computeCompliance(
   days: ISODate[],
@@ -33,7 +44,7 @@ export function computeCompliance(
   snapshots: Record<ISODate, PlanSnapshot>,
 ): ComplianceDay[] {
   return days.map((date) => {
-    const evs = events.filter((e) => e.date === date && e.category === 'WORKOUT' && (!e.type || RIDE_EVENT_TYPES.has(e.type)));
+    const evs = events.filter((e) => e.date === date && e.category === 'WORKOUT' && !NOT_ENDURANCE.has(e.type ?? ''));
     const snap = snapshots[date];
     let planned: ComplianceDay['planned'] = null;
     if (evs.length) {
@@ -48,7 +59,10 @@ export function computeCompliance(
     } else if (snap) {
       planned = { name: snap.name, sec: snap.durationMin * 60, tss: snap.tss, key: snap.key, templateId: snap.templateId, source: 'app' };
     }
-    const done = activities.filter((a) => a.date === date && a.isRide);
+    const allDone = activities.filter((a) => a.date === date && !a.isStrength && !NOT_ENDURANCE.has(a.type));
+    // Planned by sport on the calendar: only compare the same sports
+    const fams = new Set(evs.map((e) => sportFamily(e.type)));
+    const done = evs.length && !fams.has('any') ? allDone.filter((a) => fams.has(sportFamily(a.type))) : allDone;
     const doneTss = done.reduce((a, x) => a + (x.tss ?? 0), 0);
     const doneSec = done.reduce((a, x) => a + x.movingSec, 0);
     let ratio: number | null = null;
@@ -60,7 +74,7 @@ export function computeCompliance(
     let label: string;
     if (!planned) {
       color = done.length ? 'unplanned' : 'rest';
-      label = done.length ? 'Unplanned ride' : 'Rest';
+      label = done.length ? 'Unplanned session' : 'Rest';
     } else if (!done.length) {
       color = diffDays(asOf, date) > 0 ? 'red' : 'pending';
       label = color === 'red' ? 'Missed' : 'Planned';
