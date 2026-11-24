@@ -203,7 +203,10 @@ export interface StrengthPlanArgs {
 
 /** Maintaining: hold strength with the maintenance program instead of progressive build blocks. */
 export function goalPhase(phase: StrengthPhase, goal: StrengthGoal | undefined): StrengthPhase {
-  return goal === 'maintain' && (phase === 'AA' || phase === 'MS' || phase === 'SP') ? 'MT' : phase;
+  if (goal === 'maintain') return phase === 'AA' || phase === 'MS' || phase === 'SP' ? 'MT' : phase;
+  // Building: keep heavy max-strength work where the season plan would only maintain
+  // (deload, taper and race weeks are kept as they are)
+  return phase === 'MT' ? 'MS' : phase;
 }
 
 export function phaseCap(phase: StrengthPhase): number {
@@ -218,6 +221,10 @@ export function planStrength(args: StrengthPlanArgs): { sessions: Record<ISODate
 
   // Phase for the week: from the macro week of the first day, with a re-entry override
   let phase: StrengthPhase = basePhase;
+  if ((settings.goal ?? 'build') === 'build' && phase === 'MT') {
+    phase = 'MS';
+    notes.push('Building strength: heavy max-strength sessions continue even though this part of the season would normally only maintain. If your legs feel heavy for key bike sessions, switch to Maintain.');
+  }
   const reEntry = trends.daysSinceStrength == null || trends.daysSinceStrength > 21;
   if (reEntry && ['MS', 'SP', 'MT'].includes(phase)) {
     phase = 'AA';
