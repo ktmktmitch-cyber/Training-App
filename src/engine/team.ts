@@ -224,6 +224,28 @@ export function riderMetrics(r: TeamRider, asOf: ISODate, deep?: DeepRider | nul
   let daily = dailyLoadFromAtl(trend);
   let lastHard = lastHardFromRides(r, asOf);
   let eftpChangePct: number | null = null;
+  if (!deep || deep.error) {
+    // No detailed data (not shared with this key, or not loaded yet): estimate from the rides in team.json
+    const est: Activity[] = r.recent_rides
+      .filter((a) => a.load && a.hours > 0 && diffDays(asOf, a.date) >= 0 && diffDays(asOf, a.date) < 28)
+      .map((a, i) => ({
+        id: `est-${i}`,
+        date: a.date,
+        name: a.name,
+        type: a.type,
+        isRide: true,
+        isStrength: false,
+        movingSec: a.hours * 3600,
+        tss: a.load,
+        intensity: Math.sqrt((a.load as number) / (a.hours * 100)),
+        normalizedPower: a.np,
+        avgHr: null,
+        powerZoneSecs: null,
+        hrZoneSecs: null,
+        source: 'intervals',
+      }));
+    if (est.length) loadFocus = { ...computeLoadFocus(est, asOf, 'base', 'fitness'), estimated: true };
+  }
   if (deep && !deep.error) {
     loadFocus = computeLoadFocus(deep.activities, asOf, 'base', 'fitness');
     readiness = assessReadiness(deep.wellness, asOf);

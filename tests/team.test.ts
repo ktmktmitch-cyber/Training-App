@@ -103,3 +103,31 @@ describe('team data', () => {
     expect(['moderate', 'high']).toContain(rm.staleness.level);
   });
 });
+
+describe('load buckets without detailed data', () => {
+  it('estimates from team.json rides when a rider is not shared with the coach key', () => {
+    const asOf = '2026-11-24';
+    const d = parseTeamData({
+      updated: 'x',
+      today: asOf,
+      riders: [
+        {
+          id: 'i1', rider: 'A', state: 'ok', hours_this_week: 3, hours_last_week: 4, hours_month: 10, hours_ytd: 100, miles_ytd: 1000, fitness: 30, form: 0, prs: [], weeks: [], trend: [],
+          recent_rides: [
+            { start: '2026-11-20T10:00:00', date: '2026-11-20', name: 'Easy', type: 'Ride', hours: 2, miles: 30, load: 90 }, // IF ≈ 0.67 → low
+            { start: '2026-11-18T10:00:00', date: '2026-11-18', name: 'Intervals', type: 'Ride', hours: 1, miles: 15, load: 80 }, // IF ≈ 0.89 → high
+            { start: '2026-09-01T10:00:00', date: '2026-09-01', name: 'Old', type: 'Ride', hours: 1, miles: 15, load: 50 },
+          ],
+        },
+        { id: 'i2', rider: 'B', state: 'ok', hours_this_week: 0, hours_last_week: 0, hours_month: 0, hours_ytd: 0, miles_ytd: 0, fitness: 0, form: 0, prs: [], weeks: [], trend: [], recent_rides: [] },
+      ],
+      feed: [],
+    });
+    const blocked = riderMetrics(d.riders[0], asOf, { activities: [], wellness: [], profile: null, fetchedAt: '', error: '403' });
+    expect(blocked.loadFocus?.estimated).toBe(true);
+    expect(blocked.loadFocus?.load.low).toBe(90);
+    expect(blocked.loadFocus?.load.high).toBe(80);
+    expect(riderMetrics(d.riders[0], asOf).loadFocus?.estimated).toBe(true); // not loaded yet
+    expect(riderMetrics(d.riders[1], asOf).loadFocus).toBeNull();
+  });
+});
