@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fmtLong, fmtShort } from '../engine/dates';
 import { FOCUS_LABEL, type FocusKey } from '../engine/loadFocus';
 import { FORM_ZONES } from '../engine/status';
-import { POWER_KEY_LABEL, POWER_KEYS, type RiderMetrics, type TeamRider } from '../engine/team';
+import { POWER_KEY_LABEL, POWER_KEYS, type DeepRider, type RiderMetrics, type TeamRider } from '../engine/team';
 import { BarChart, LineChart } from '../components/charts';
 import { LoadFocusCard } from '../components/insights';
 import { StatusIcon, useToast } from '../components/ui';
@@ -11,6 +11,8 @@ import { useApp } from '../lib/store';
 import { useTeam } from '../lib/team';
 import { CoachSchedule } from '../components/CoachSchedule';
 import { RiderSettingsPanel } from '../components/RiderSettingsPanel';
+import { CoachReadinessTable } from '../components/CoachReadinessTable';
+import { FormBadge, TeamFormCard } from '../components/FormBadge';
 
 const dash = '—';
 const h1 = (v: number | null | undefined) => (v == null ? dash : v.toFixed(1));
@@ -42,6 +44,17 @@ export function TeamPage() {
   const [sel, setSel] = useState<string | null>(null);
   const [toast, showToast] = useToast();
   const isCoach = t.source === 'url' && app.canPush && (!app.account || app.account.role === 'coach');
+  // Coaches: load riders' details automatically (readiness, calendar, planned breaks), refreshed every 3 h
+  const autoLoaded = useRef(false);
+  useEffect(() => {
+    if (!isCoach || !t.team || t.deepProgress || autoLoaded.current) return;
+    const ages = Object.values(t.deep).map((d) => Date.now() - new Date(d.fetchedAt).getTime());
+    if (!ages.length || Math.max(...ages) > 3 * 3600_000 || ok.some((r) => !t.deep[r.id])) {
+      autoLoaded.current = true;
+      t.loadDeep();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCoach, t.team]);
   const detailRef = useRef<HTMLDivElement>(null);
 
   const ok = useMemo(() => (team?.riders ?? []).filter((r) => r.state === 'ok'), [team]);
@@ -161,6 +174,19 @@ export function TeamPage() {
       )}
       {toast}
 
+      {isCoach && (
+        <CoachReadinessTable
+          riders={ok}
+          metrics={t.metrics}
+          deep={t.deep}
+          asOf={app.asOf}
+          onOpen={open}
+          loading={t.deepProgress ? `Loading ${t.deepProgress.done}/${t.deepProgress.total}…` : null}
+        />
+      )}
+
+      <TeamFormCard riders={ok} onOpen={open} />
+
       <div className="team-tiles">
         {me && (
           <div className="card" style={{ borderColor: 'var(--accent)' }}>
@@ -266,8 +292,8 @@ export function TeamPage() {
                     <td className="num">{h1(r.hours_ytd)}</td>
                     <td className="num">{n0(r.miles_ytd)}</td>
                     <td className="num">{r.fitness ?? dash}</td>
-                    <td className={`num ${r.form != null && r.form < -30 ? 'bad-ink' : r.form != null && r.form <= -10 ? 'good-ink' : ''}`} title={m?.formZone ?? ''}>
-                      {r.form ?? dash}
+                    <td className="form-cell">
+                      <FormBadge tsb={r.form} />
                     </td>
                     <td className="num">{r.eftp_watts ?? dash}</td>
                     <td className="num">{r.eftp_wkg?.toFixed(2) ?? dash}</td>
@@ -311,7 +337,7 @@ export function TeamPage() {
         </p>
       </div>
 
-      <div ref={detailRef}>{selRider && <RiderDetail r={selRider} m={t.metrics[selRider.id]} riders={ok} onPick={setSel} coach={isCoach} />}</div>
+      <div ref={detailRef}>{selRider && <RiderDetail r={selRider} m={t.metrics[selRider.id]} riders={ok} onPick={setSel} coach={isCoach} deep={t.deep[selRider.id]} />}</div>
 
       <div className="grid-2">
         <div className="card">
@@ -513,7 +539,7 @@ export function TeamPage() {
   );
 }
 
-function RiderDetail({ r, m, riders, onPick, coach }: { r: TeamRider; m: RiderMetrics | undefined; riders: TeamRider[]; onPick: (id: string) => void; coach?: boolean }) {
+function RiderDetail({ r, m, riders, onPick, coach, deep }: { r: TeamRider; m: RiderMetrics | undefined; riders: TeamRider[]; onPick: (id: string) => void; coach?: boolean; deep?: DeepRider }) {
   const trend = r.trend;
   return (
     <div className="card stack-lg hero">
@@ -547,7 +573,7 @@ function RiderDetail({ r, m, riders, onPick, coach }: { r: TeamRider; m: RiderMe
         </div>
         <div>
           <b className="num">
-            {r.form ?? dash} {m?.formZone ? <span className="tiny muted">{m.formZone}</span> : null}
+            <FormBadge tsb={r.form} />
           </b>
           <span>Form (TSB)</span>
         </div>
@@ -727,7 +753,7 @@ function RiderDetail({ r, m, riders, onPick, coach }: { r: TeamRider; m: RiderMe
         </div>
       </div>
       <p className="tiny muted">Form zones: {FORM_ZONES.map((z) => z.label).join(' · ')}.</p>
-      {coach && <RiderSettingsPanel r={r} />}
+      {coach && <RiderSettingsPanel r={r} deep={deep} />}
     </div>
   );
 }

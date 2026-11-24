@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addDays, diffDays } from '../engine/dates';
 import { parseTeamData, riderFromData, riderMetrics, type DeepRider, type RiderMetrics, type TeamData, type TeamFeedItem } from '../engine/team';
 import { demoData, type DemoOpts } from './demo';
-import { fetchAthleteData } from './intervals';
+import { fetchAthleteData, fetchEvents } from './intervals';
+import { readDoc } from './cloudSync';
 import { load, save } from './storage';
 import { useApp } from './store';
 
@@ -121,7 +122,21 @@ export function useTeam(): TeamState {
         const id = queue.shift()!;
         try {
           const d = await fetchAthleteData(conn, id, addDays(asOf, -63), asOf);
-          out[id] = { ...d, fetchedAt: new Date().toISOString() };
+          // Calendar (sick/injured/holiday days) and their synced app settings (planned breaks) — best effort
+          const rc = { ...conn, athleteId: id };
+          const [events, doc] = await Promise.all([fetchEvents(rc, addDays(asOf, -28), addDays(asOf, 90)).catch(() => undefined), readDoc(rc).catch(() => null)]);
+          const st = doc?.data;
+          const goal = (st?.settings as { goal?: { restWeeks?: string[]; awayWeeks?: string[]; offRanges?: { start: string; end: string; note?: string }[] }; prefs?: { sport?: string } } | undefined) ?? {};
+          const sickDays = [
+            ...Object.entries((st?.checkins ?? {}) as Record<string, { feel?: string }>).filter(([, c]) => c.feel === 'sick').map(([d]) => d),
+            ...Object.entries((st?.journal ?? {}) as Record<string, string[]>).filter(([, t]) => t.includes('illness')).map(([d]) => d),
+          ];
+          out[id] = {
+            ...d,
+            events,
+            plan: doc ? { restWeeks: goal.goal?.restWeeks ?? [], awayWeeks: goal.goal?.awayWeeks ?? [], offRanges: goal.goal?.offRanges ?? [], sickDays, sport: goal.prefs?.sport } : null,
+            fetchedAt: new Date().toISOString(),
+          };
         } catch (e) {
           out[id] = { activities: [], wellness: [], profile: null, fetchedAt: new Date().toISOString(), error: (e as Error).message };
         }

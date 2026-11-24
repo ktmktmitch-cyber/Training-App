@@ -4,6 +4,13 @@ import { addDays, diffDays, fmtMinutes, mondayOf } from './dates';
 import { ewma, mean, round, sd } from './stats';
 import type { Activity, ISODate, Trends, Wellness } from './types';
 
+/** Hours count rides, runs and swims only; lifting, 'Workout', yoga etc. count for training load (TSS) but not hours. */
+export function countsForHours(a: Activity): boolean {
+  if (a.isStrength) return false;
+  if (a.isRide) return true;
+  return /run|swim/i.test(a.type);
+}
+
 /** A hard session in any endurance sport (rides by power zones; runs/swims by intensity or HR zones). Strength doesn't count. */
 export function isHardSession(a: Activity): boolean {
   if (a.isStrength) return false;
@@ -51,7 +58,7 @@ export function computeTrends(activities: Activity[], wellness: Wellness[], asOf
     const ws = addDays(thisMonday, -7 * (11 - i));
     const we = addDays(ws, 6);
     const acts = past.filter((a) => diffDays(a.date, ws) >= 0 && diffDays(we, a.date) >= 0);
-    const endurance = acts.filter((a) => !a.isStrength);
+    const endurance = acts.filter(countsForHours);
     return {
       weekStart: ws,
       hours: round(endurance.reduce((x, a) => x + a.movingSec, 0) / 3600, 1),
@@ -117,7 +124,7 @@ export function computeTrends(activities: Activity[], wellness: Wellness[], asOf
   }
 
   const longestRideMin28 = Math.round(Math.max(0, ...rides28.map((r) => r.movingSec / 60)));
-  const avgWeeklyHours4 = round(last28.filter((a) => !a.isStrength).reduce((x, a) => x + a.movingSec, 0) / 3600 / 4, 1);
+  const avgWeeklyHours4 = round(last28.filter(countsForHours).reduce((x, a) => x + a.movingSec, 0) / 3600 / 4, 1);
   const avgWeeklyTss4 = Math.round(last28.reduce((x, a) => x + (a.tss ?? 0), 0) / 4);
   const hard = past.filter(isHardSession).sort((a, b) => b.date.localeCompare(a.date));
   const hardSessions14 = hard.filter((a) => diffDays(asOf, a.date) < 14).length;

@@ -9,8 +9,8 @@ import { assessReadiness } from './readiness';
 import { computeStaleness, dailyLoadFromAtl, type Staleness } from './staleness';
 import { formZone, trainingStatus, type TrainingStatus } from './status';
 import { round } from './stats';
-import { isHardSession } from './trends';
-import type { Activity, AthleteProfile, ISODate, Readiness, Wellness } from './types';
+import { countsForHours, isHardSession } from './trends';
+import type { Activity, AthleteProfile, CalendarEvent, ISODate, Readiness, Wellness } from './types';
 import { estimateVo2, type Vo2Estimate } from './vo2max';
 
 export interface TeamWeek {
@@ -165,6 +165,44 @@ export interface DeepRider {
   profile: AthleteProfile | null;
   fetchedAt: string;
   error?: string;
+  /** their intervals.icu calendar around today (sick/injured/holiday days, races, planned workouts) */
+  events?: CalendarEvent[];
+  /** from their synced app settings: planned breaks and how they've felt */
+  plan?: { restWeeks: ISODate[]; awayWeeks: ISODate[]; offRanges: { start: ISODate; end: ISODate; note?: string }[]; sickDays: ISODate[]; sport?: string } | null;
+}
+
+export interface Availability {
+  today: 'sick' | 'injured' | 'away' | 'rest week' | null;
+  next: string | null; // e.g. "Away Dec 21–27"
+  sickRecent: ISODate[]; // last 14 days (calendar SICK, check-in 'sick', journal 'illness')
+}
+
+/** Sick / injured / away / rest-week status for coaches, from the rider's calendar and synced settings. */
+export function riderAvailability(deep: DeepRider | null | undefined, asOf: ISODate): Availability {
+  const evs = deep?.events ?? [];
+  const covers = (e: CalendarEvent, d: ISODate) => diffDays(d, e.date) >= 0 && diffDays(e.endDate ?? e.date, d) >= 0;
+  const sickEv = evs.filter((e) => e.category === 'SICK' || e.category === 'INJURED');
+  const plan = deep?.plan;
+  const inRange = (d: ISODate) => (plan?.offRanges ?? []).some((r) => diffDays(d, r.start) >= 0 && diffDays(r.end, d) >= 0);
+  const monday = mondayOf(asOf);
+  let today: Availability['today'] = null;
+  const sickNow = sickEv.find((e) => covers(e, asOf));
+  if (sickNow) today = sickNow.category === 'INJURED' ? 'injured' : 'sick';
+  else if ((plan?.sickDays ?? []).includes(asOf)) today = 'sick';
+  else if (evs.some((e) => e.category === 'HOLIDAY' && covers(e, asOf)) || (plan?.awayWeeks ?? []).includes(monday) || inRange(asOf)) today = 'away';
+  else if ((plan?.restWeeks ?? []).includes(monday)) today = 'rest week';
+  const upcoming: { d: ISODate; label: string }[] = [];
+  for (const w of plan?.awayWeeks ?? []) if (diffDays(w, asOf) > 0) upcoming.push({ d: w, label: `Away wk of ${w.slice(5)}` });
+  for (const w of plan?.restWeeks ?? []) if (diffDays(w, asOf) > 0) upcoming.push({ d: w, label: `Rest wk of ${w.slice(5)}` });
+  for (const r of plan?.offRanges ?? []) if (diffDays(r.start, asOf) > 0) upcoming.push({ d: r.start, label: `Off ${r.start.slice(5)}–${r.end.slice(5)}` });
+  for (const e of evs) if (e.category === 'HOLIDAY' && diffDays(e.date, asOf) > 0) upcoming.push({ d: e.date, label: `Holiday ${e.date.slice(5)}` });
+  upcoming.sort((a, b) => a.d.localeCompare(b.d));
+  const sickRecent = new Set<ISODate>();
+  for (let i = 0; i < 14; i++) {
+    const d = addDays(asOf, -i);
+    if (sickEv.some((e) => covers(e, d)) || (plan?.sickDays ?? []).includes(d)) sickRecent.add(d);
+  }
+  return { today, next: upcoming[0]?.label ?? null, sickRecent: [...sickRecent].sort() };
 }
 
 export interface RiderMetrics {
@@ -250,7 +288,7 @@ export function riderMetrics(r: TeamRider, asOf: ISODate, deep?: DeepRider | nul
     loadFocus = computeLoadFocus(deep.activities, asOf, 'base', 'fitness');
     readiness = assessReadiness(deep.wellness, asOf);
     status = trainingStatus(deep.wellness, readiness, asOf);
-    hoursLast4w = round(deep.activities.filter((a) => !a.isStrength && diffDays(asOf, a.date) < 28).reduce((s, a) => s + a.movingSec, 0) / 3600, 1);
+    hoursLast4w = round(deep.activities.filter((a) => countsForHours(a) && diffDays(asOf, a.date) < 28).reduce((s, a) => s + a.movingSec, 0) / 3600, 1);
     const byDay = new Map<ISODate, number>();
     for (const a of deep.activities) byDay.set(a.date, (byDay.get(a.date) ?? 0) + (a.tss ?? 0));
     daily = Array.from({ length: 42 }, (_, i) => addDays(asOf, -i)).map((d) => ({ date: d, load: byDay.get(d) ?? 0 }));
@@ -298,7 +336,7 @@ export function riderFromData(
   asOf: ISODate,
 ): TeamRider {
   const monday = mondayOf(asOf);
-  const rides = activities.filter((a) => a.isRide);
+  const rides = activities.filter(countsForHours); // hours: rides, runs, swims
   const hoursBetween = (from: ISODate, to?: ISODate) =>
     round(rides.filter((a) => diffDays(a.date, from) >= 0 && (!to || diffDays(to, a.date) > 0)).reduce((s, a) => s + a.movingSec, 0) / 3600, 1);
   const monthStart = `${asOf.slice(0, 8)}01`;

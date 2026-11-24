@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { addDays, fmtShort, mondayOf } from '../engine/dates';
 import { TAGS } from '../engine/journal';
 import { SPORT_LABEL } from '../engine/multisport';
-import type { TeamRider } from '../engine/team';
-import type { LoadPattern, PeriodizationModel, PlannedRace, RacePriority, SportMode } from '../engine/types';
+import type { EventType, IntensityModel, LoadPattern, PeriodizationModel, PlannedRace, RacePriority, SportMode } from '../engine/types';
+import { EVENT_LABELS } from '../engine/periodization';
+import { riderAvailability, type DeepRider } from '../engine/team';
 import { coachError } from '../lib/coach';
 import { flatten, readDoc, restamp, unflatten, writeDoc, type SyncDoc } from '../lib/cloudSync';
 import { useApp } from '../lib/store';
+import type { TeamRider } from '../engine/team';
 
-type Goal = { model?: PeriodizationModel; loadPattern?: LoadPattern; eventName?: string; eventDate?: string | null; restWeeks?: string[]; awayWeeks?: string[]; races?: PlannedRace[] };
+type Goal = { model?: PeriodizationModel; loadPattern?: LoadPattern; intensity?: IntensityModel; eventName?: string; eventDate?: string | null; eventType?: EventType; restWeeks?: string[]; awayWeeks?: string[]; offRanges?: { id: string; start: string; end: string; note?: string }[]; races?: PlannedRace[] };
 type Prefs = { sport?: SportMode };
 type Strength = { frequency?: number };
 
@@ -24,7 +26,7 @@ const MODELS: { id: PeriodizationModel; label: string }[] = [
  * their intervals.icu calendar; needs coach access with permission to edit their calendar). Their
  * app picks up your changes the next time it syncs. Their journal only shows if they chose to share it.
  */
-export function RiderSettingsPanel({ r }: { r: TeamRider }) {
+export function RiderSettingsPanel({ r, deep }: { r: TeamRider; deep?: DeepRider }) {
   const app = useApp();
   const conn = { ...app.getConnection(), athleteId: r.id };
   const [doc, setDoc] = useState<SyncDoc | null | undefined>(undefined);
@@ -36,6 +38,10 @@ export function RiderSettingsPanel({ r }: { r: TeamRider }) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [weekDate, setWeekDate] = useState(addDays(app.asOf, 21));
+  const [offFrom, setOffFrom] = useState(addDays(app.asOf, 14));
+  const [offTo, setOffTo] = useState(addDays(app.asOf, 17));
+  const av = riderAvailability(deep, app.asOf);
+  const sickEvents = (deep?.events ?? []).filter((e) => (e.category === 'SICK' || e.category === 'INJURED') && e.date >= addDays(app.asOf, -28));
   const [race, setRace] = useState<{ name: string; date: string; priority: RacePriority; durationMin: number }>({ name: '', date: addDays(app.asOf, 60), priority: 'B', durationMin: 120 });
 
   const load = () => {
@@ -142,6 +148,36 @@ export function RiderSettingsPanel({ r }: { r: TeamRider }) {
             </label>
           </div>
 
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <label className="field" style={{ flex: '2 1 180px' }}>
+              <span>Goal event</span>
+              <input className="input" value={goal.eventName ?? ''} placeholder="e.g. State road race" onChange={(e) => setGoal({ ...goal, eventName: e.target.value })} aria-label="Rider goal event" />
+            </label>
+            <label className="field" style={{ flex: '1 1 150px' }}>
+              <span>Goal date</span>
+              <input className="input" type="date" value={goal.eventDate ?? ''} onChange={(e) => setGoal({ ...goal, eventDate: e.target.value || null })} aria-label="Rider goal date" />
+            </label>
+            <label className="field" style={{ flex: '1 1 150px' }}>
+              <span>Event type</span>
+              <select className="select" value={goal.eventType ?? 'fitness'} onChange={(e) => setGoal({ ...goal, eventType: e.target.value as EventType })} aria-label="Rider event type">
+                {(Object.keys(EVENT_LABELS) as EventType[]).map((k) => (
+                  <option key={k} value={k}>
+                    {EVENT_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field" style={{ flex: '1 1 170px' }}>
+              <span>Intensity distribution</span>
+              <select className="select" value={goal.intensity ?? 'auto'} onChange={(e) => setGoal({ ...goal, intensity: e.target.value as IntensityModel })} aria-label="Rider intensity distribution">
+                <option value="auto">Auto</option>
+                <option value="polarized">Polarized</option>
+                <option value="pyramidal">Pyramidal</option>
+                <option value="sweetspot">Sweet spot / time-crunched</option>
+              </select>
+            </label>
+          </div>
+
           <div className="stack" style={{ gap: 6 }}>
             <b className="small">Races</b>
             {(goal.races ?? []).length ? (
@@ -204,6 +240,38 @@ export function RiderSettingsPanel({ r }: { r: TeamRider }) {
                 Add away week
               </button>
             </div>
+            <div className="row" style={{ alignItems: 'flex-end' }}>
+              {(goal.offRanges ?? []).map((x) => (
+                <span key={x.id} className="chip">
+                  Off {fmtShort(x.start)}–{fmtShort(x.end)}{' '}
+                  <button className="drop-clear" style={{ position: 'static' }} aria-label={`Remove days off ${fmtShort(x.start)}`} onClick={() => setGoal({ ...goal, offRanges: (goal.offRanges ?? []).filter((y) => y.id !== x.id) })}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="row" style={{ alignItems: 'flex-end' }}>
+              <input className="input" style={{ flex: '0 1 160px' }} type="date" value={offFrom} onChange={(e) => e.target.value && setOffFrom(e.target.value)} aria-label="Rider first day off" />
+              <input className="input" style={{ flex: '0 1 160px' }} type="date" min={offFrom} value={offTo} onChange={(e) => e.target.value && setOffTo(e.target.value)} aria-label="Rider last day off" />
+              <button className="btn sm" disabled={offTo < offFrom} onClick={() => setGoal({ ...goal, offRanges: [...(goal.offRanges ?? []), { id: `c${Date.now().toString(36)}`, start: offFrom, end: offTo }] })}>
+                Add days off
+              </button>
+            </div>
+          </div>
+
+          <div className="stack" style={{ gap: 4 }}>
+            <b className="small">Sick & availability</b>
+            <span className="small">
+              Today: <b className={av.today === 'sick' || av.today === 'injured' ? 'warn-ink' : ''}>{av.today ? av.today : 'available'}</b>
+              {av.next ? ` · next: ${av.next}` : ''}
+            </span>
+            {sickEvents.length > 0 && (
+              <span className="small ink2">
+                On their calendar: {sickEvents.map((e) => `${e.category === 'INJURED' ? 'injured' : 'sick'} ${fmtShort(e.date)}${e.endDate && e.endDate !== e.date ? `–${fmtShort(e.endDate)}` : ''}`).join(', ')}
+              </span>
+            )}
+            {av.sickRecent.length > 0 && <span className="small ink2">Sick in the last 2 weeks: {av.sickRecent.map((d) => fmtShort(d)).join(', ')}</span>}
+            {!deep && <span className="tiny muted">Load detailed metrics (top of the Team tab) to see sick days from their calendar.</span>}
           </div>
 
           <div className="row">
