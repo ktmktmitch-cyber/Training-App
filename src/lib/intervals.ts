@@ -1,6 +1,7 @@
 // intervals.icu API client + normalisation into engine types.
 // Works through the bundled Node proxy (/api/icu → intervals.icu, no CORS issues, key
 // can live server-side) or directly from the browser with your API key.
+import { addDays } from '../engine/dates';
 import type { Activity, AthleteProfile, CalendarEvent, ISODate, PowerCurve, Wellness } from '../engine/types';
 import type { IcuEvent } from '../engine/icuExport';
 
@@ -244,11 +245,23 @@ export function normalizeActivity(a: RawActivity): Activity {
   };
 }
 
+/**
+ * intervals.icu end dates are exclusive (a one-day workout ends at midnight the next day).
+ * Returns the last day the event covers, or undefined for a single-day event.
+ */
+export function lastDay(start: string, end: string | null | undefined): ISODate | undefined {
+  if (!end) return undefined;
+  const s = start.slice(0, 10);
+  let d = end.slice(0, 10);
+  if (d > s && end.length >= 19 && end.slice(11, 19) === '00:00:00') d = addDays(d, -1);
+  return d > s ? d : undefined;
+}
+
 export function normalizeEvent(e: RawEvent): CalendarEvent {
   return {
     id: String(e.id),
     date: e.start_date_local.slice(0, 10),
-    endDate: e.end_date_local ? e.end_date_local.slice(0, 10) : undefined,
+    endDate: lastDay(e.start_date_local, e.end_date_local),
     category: e.category,
     name: e.name ?? e.category,
     type: e.type ?? undefined,

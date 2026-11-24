@@ -37,6 +37,8 @@ export function TeamSend({ t, durationMin, level }: { t: WorkoutTemplate; durati
     const res = await sendToRiders(app.getConnection(), sel, t, durationMin, level, date, mode, note, (n) => setBusy(n));
     setBusy(null);
     setResults(res);
+    // Sent to yourself too: refresh your own calendar so it shows in your week right away
+    if (res.some((x) => x.ok && x.rider.id === app.data.profile?.id)) app.sync().catch(() => {});
   };
 
   return (

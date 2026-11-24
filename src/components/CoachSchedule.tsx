@@ -67,6 +67,8 @@ export function CoachSchedule({ riders, onToast }: { riders: TeamRider[]; onToas
     const res = await sendToRiders(app.getConnection(), sel, t, dur, lvl, date, mode, note, (n) => setBusy(n));
     setBusy(null);
     setResults(res);
+    // Sent to yourself too: refresh your own calendar so it shows in your week right away
+    if (res.some((x) => x.ok && x.rider.id === app.data.profile?.id)) app.sync().catch(() => {});
     const okN = res.filter((r) => r.ok).length;
     onToast(`Sent “${w?.name}” to ${okN} of ${res.length} rider${res.length === 1 ? '' : 's'} for ${fmtShort(date)}.`);
     if (sel.some((r) => r.id === viewRider?.id)) load();

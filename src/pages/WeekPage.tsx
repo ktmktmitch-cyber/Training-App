@@ -101,6 +101,22 @@ export function WeekPage() {
       </div>
 
       {app.data.info && <div className="callout">{app.data.info}</div>}
+      {settings.startOffset === 1 &&
+        (() => {
+          const todayEv = app.events.find((e) => e.date === app.asOf && e.category === 'WORKOUT' && !(e.externalId ?? '').startsWith('trainingapp-'));
+          return todayEv ? (
+            <div className="callout row" style={{ alignItems: 'center' }}>
+              <span className="small">
+                <b>Today{(todayEv.externalId ?? '').startsWith('tacoach-') ? ' from your coach' : ' on your calendar'}:</b> {todayEv.name}
+                {todayEv.plannedSec ? ` · ${fmtMinutes(Math.round(todayEv.plannedSec / 60))}` : ''}
+              </span>
+              <span className="spacer" />
+              <button className="btn sm" onClick={() => app.updateSettings((x) => ({ ...x, startOffset: 0 }))}>
+                Include today
+              </button>
+            </div>
+          ) : null;
+        })()}
       <DataGapNotes only={['hrv', 'rhr', 'sleep', 'stravaHidden']} />
 
       <NextWorkoutCard
