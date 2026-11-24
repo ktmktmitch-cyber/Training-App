@@ -133,7 +133,7 @@ export function NextWorkoutCard(props: {
 }
 
 // ---------- Planned vs done (TrainingPeaks compliance + JOIN/TrainerRoad post-ride survey) ----------
-const C_COLOR: Record<ComplianceDay['color'], string> = {
+export const C_COLOR: Record<ComplianceDay['color'], string> = {
   green: 'var(--good)',
   yellow: 'var(--warning)',
   orange: 'var(--serious)',
@@ -142,7 +142,7 @@ const C_COLOR: Record<ComplianceDay['color'], string> = {
   rest: 'transparent',
   pending: 'var(--accent)',
 };
-const C_ICON: Record<ComplianceDay['color'], string> = { green: '✓', yellow: '~', orange: '!', red: '×', unplanned: '+', rest: '', pending: '•' };
+export const C_ICON: Record<ComplianceDay['color'], string> = { green: '✓', yellow: '~', orange: '!', red: '×', unplanned: '+', rest: '', pending: '•' };
 
 export function ComplianceStrip({
   days,

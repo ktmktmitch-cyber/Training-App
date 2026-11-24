@@ -141,7 +141,8 @@ export function workoutToFit(w: PlannedWorkout, targets?: ExportTargets, created
     [8, 32, STRING], // name
   ];
   body.definition(1, 26, workout);
-  body.data(1, workout, [2, 0, steps.length, w.name]);
+  const isRun = w.sport === 'run';
+  body.data(1, workout, [isRun ? 1 : 2, 0, steps.length, w.name]);
 
   const step: FieldDef[] = [
     [254, 2, UINT16], // message index
@@ -173,6 +174,16 @@ export function workoutToFit(w: PlannedWorkout, targets?: ExportTargets, created
           type = 2; // open — HR can't follow a short effort
           lo = hi = 0;
           name = (name ? `${name} ` : '').concat(st.low! >= 100 ? 'HARD RPE9' : 'easy').slice(0, 15);
+        }
+      } else if (isRun) {
+        // Running: speed targets (m/s × 1000) from threshold pace, else open (by feel)
+        if (targets?.paceMps) {
+          type = 0;
+          lo = Math.round(((st.low! * targets.paceMps) / 100) * 1000);
+          hi = Math.round(((st.high! * targets.paceMps) / 100) * 1000);
+        } else {
+          type = 2;
+          lo = hi = 0;
         }
       } else if (targets?.mode === 'power' && targets.ftp > 0) {
         lo = Math.round((st.low! * targets.ftp) / 100) + 1000;

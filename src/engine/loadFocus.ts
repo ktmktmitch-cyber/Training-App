@@ -15,6 +15,8 @@ export interface LoadFocus {
   shortage: FocusKey | null;
   headline: string;
   days: number;
+  /** estimated from ride averages (no zone data): anaerobic work can't be seen */
+  estimated?: boolean;
 }
 
 // Representative intensity (fraction of FTP) for each of the 7 power zones

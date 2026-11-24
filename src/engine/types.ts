@@ -41,6 +41,9 @@ export interface AthleteProfile {
   cp?: number | null; // critical power (W)
   wPrime?: number | null; // J
   pMax?: number | null; // W
+  runThresholdMps?: number | null; // threshold running speed (m/s) from intervals.icu
+  runLthr?: number | null;
+  swimCssMps?: number | null; // critical swim speed (m/s)
 }
 
 export interface Activity {
@@ -52,6 +55,7 @@ export interface Activity {
   isRide: boolean;
   isStrength: boolean;
   movingSec: number;
+  distanceM?: number | null;
   tss: number | null; // training load
   intensity: number | null; // IF 0..1.5
   normalizedPower: number | null;
@@ -112,6 +116,7 @@ export interface CalendarEvent {
   externalId?: string | null;
   plannedSec?: number | null;
   plannedTss?: number | null;
+  description?: string | null;
 }
 
 // ---------- User settings ----------
@@ -145,6 +150,7 @@ export interface GoalSettings {
   planStart: ISODate | null; // null = from this week
   useCalendarRaces: boolean; // read RACE_A/B/C from intervals.icu
   restWeeks?: ISODate[]; // Mondays of weeks you chose to make rest weeks
+  awayWeeks?: ISODate[]; // Mondays of weeks you can't train at all (travel, vacation)
   races?: PlannedRace[]; // races you added in the app
 }
 
@@ -180,7 +186,7 @@ export interface MobilityPrefs {
   band: boolean;
 }
 
-export type DayStatus = 'available' | 'off' | 'group' | 'pinned' | 'race';
+export type DayStatus = 'available' | 'off' | 'group' | 'pinned' | 'race' | 'scheduled';
 export type GroupIntensity = 'social' | 'tempo' | 'hard' | 'race';
 
 export interface DayConfig {
@@ -189,6 +195,8 @@ export interface DayConfig {
   group?: { durationMin: number; intensity: GroupIntensity; name?: string };
   pinned?: { workoutId: string; durationMin: number; level?: number };
   race?: { name: string; durationMin: number; priority: 'A' | 'B' | 'C' };
+  /** a workout already on your intervals.icu calendar (from a coach, TrainerRoad, etc.) */
+  scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null };
   noLift?: boolean;
 }
 
@@ -200,7 +208,12 @@ export interface WeekConfig {
 
 export type TargetMode = 'power' | 'hr';
 
+export type SportMode = 'cycling' | 'running' | 'run_bike' | 'triathlon';
+
 export interface PlannerPrefs {
+  sport?: SportMode; // default cycling
+  runPaceMps?: number | null; // your threshold run pace (overrides intervals.icu)
+  swimCssMps?: number | null; // your CSS (overrides intervals.icu)
   longRideDay: 'sat' | 'sun' | 'auto';
   minRestDays: 0 | 1 | 2;
   targetMode: TargetMode;
@@ -262,10 +275,11 @@ export interface PlannedWorkout {
   why: string[]; // rationale lines
   fueling: string;
   key: boolean; // counts as a key/quality session
-  fixed?: 'group' | 'pinned' | 'race';
+  fixed?: 'group' | 'pinned' | 'race' | 'calendar';
   indoorAlt?: string;
   progression?: { zone: string; workoutLevel: number; athleteLevel: number | null; difficulty: string | null };
   level?: number;
+  sport?: 'ride' | 'run' | 'swim'; // default ride
 }
 
 export interface StrengthExercise {
@@ -297,6 +311,8 @@ export interface PlannedDay {
   ride: PlannedWorkout | null;
   strength: StrengthSession | null;
   mobility?: MobilitySession | null;
+  /** run / swim sessions (and brick runs) alongside or instead of the ride */
+  extras?: PlannedWorkout[];
   notes: string[];
   status: DayStatus;
 }
@@ -335,6 +351,7 @@ export interface MacroWeek {
   races: CalendarEvent[];
   estTssPerHour: number;
   userRest?: boolean; // a rest week you chose (vs one the plan scheduled)
+  userAway?: boolean; // a week you can't train at all
 }
 
 export interface MacroPlan {

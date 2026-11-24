@@ -59,6 +59,7 @@ interface RawSport {
   max_hr: number | null;
   power_zones: number[] | null;
   hr_zones: number[] | null;
+  threshold_pace?: number | null;
   mmp_model?: { ftp?: number; criticalPower?: number; wPrime?: number; pMax?: number } | null;
 }
 interface RawAthlete {
@@ -97,6 +98,7 @@ interface RawActivity {
   name?: string;
   moving_time?: number | null;
   elapsed_time?: number | null;
+  distance?: number | null;
   icu_training_load?: number | null;
   icu_intensity?: number | null;
   icu_weighted_avg_watts?: number | null;
@@ -132,6 +134,7 @@ interface RawEvent {
   external_id?: string | null;
   moving_time?: number | null;
   icu_training_load?: number | null;
+  description?: string | null;
 }
 
 // ---------- normalisers ----------
@@ -153,7 +156,15 @@ export function normalizeAthlete(a: RawAthlete, latestEftp: number | null, lates
     cp: ride?.mmp_model?.criticalPower ?? null,
     wPrime: latest?.wPrime ?? ride?.mmp_model?.wPrime ?? null,
     pMax: latest?.pMax ?? ride?.mmp_model?.pMax ?? null,
+    // intervals.icu stores threshold pace as a speed (m/s); ignore anything implausible
+    runThresholdMps: plausible(a.sportSettings?.find((s) => s.types?.includes('Run'))?.threshold_pace, 2, 7),
+    runLthr: a.sportSettings?.find((s) => s.types?.includes('Run'))?.lthr ?? null,
+    swimCssMps: plausible(a.sportSettings?.find((s) => s.types?.includes('Swim'))?.threshold_pace, 0.5, 2.5),
   };
+}
+
+function plausible(v: number | null | undefined, lo: number, hi: number): number | null {
+  return v != null && v >= lo && v <= hi ? v : null;
 }
 
 export function normalizeWellness(w: RawWellness): Wellness {
@@ -205,6 +216,7 @@ export function normalizeActivity(a: RawActivity): Activity {
     isRide: RIDE_TYPES.has(type),
     isStrength: type === 'WeightTraining',
     movingSec: a.moving_time ?? a.elapsed_time ?? 0,
+    distanceM: a.distance ?? null,
     tss: a.icu_training_load ?? null,
     intensity: a.icu_intensity != null ? a.icu_intensity / 100 : null,
     normalizedPower: a.icu_weighted_avg_watts ?? null,
@@ -243,6 +255,7 @@ export function normalizeEvent(e: RawEvent): CalendarEvent {
     externalId: e.external_id ?? null,
     plannedSec: e.moving_time ?? null,
     plannedTss: e.icu_training_load ?? null,
+    description: e.description ?? null,
   };
 }
 
@@ -298,6 +311,28 @@ export async function fetchAll(conn: Connection, oldest: ISODate, newest: ISODat
     events: (eventsRaw ?? []).map(normalizeEvent),
     powerCurves,
   };
+}
+
+/** Activities and calendar events for a date range (for browsing older months in the calendar). */
+export async function fetchHistory(conn: Connection, oldest: ISODate, newest: ISODate) {
+  const [activitiesRaw, eventsRaw] = await Promise.all([
+    call<RawActivity[]>(conn, `/athlete/${aid(conn)}/activities?oldest=${oldest}&newest=${newest}`),
+    call<RawEvent[]>(conn, `/athlete/${aid(conn)}/events?oldest=${oldest}&newest=${newest}`),
+  ]);
+  return { activities: (activitiesRaw ?? []).map(normalizeActivity).filter((a) => a.date), events: (eventsRaw ?? []).map(normalizeEvent) };
+}
+
+/** Prefix for workouts a coach schedules from the Team tab (kept distinct from the rider's own pushes). */
+export const COACH_PREFIX = 'tacoach';
+
+/** A teammate's profile and calendar (coach access needed on intervals.icu). */
+export async function fetchRiderCalendar(conn: Connection, athleteId: string, oldest: ISODate, newest: ISODate) {
+  const c = { ...conn, athleteId };
+  const [athlete, eventsRaw] = await Promise.all([
+    call<RawAthlete>(c, `/athlete/${aid(c)}`),
+    call<RawEvent[]>(c, `/athlete/${aid(c)}/events?oldest=${oldest}&newest=${newest}`),
+  ]);
+  return { profile: normalizeAthlete(athlete, null, null), events: (eventsRaw ?? []).map(normalizeEvent).sort((a, b) => a.date.localeCompare(b.date)) };
 }
 
 /** One athlete's profile, wellness and activities (works for coached athletes with the coach's key). */

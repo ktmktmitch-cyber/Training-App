@@ -5,10 +5,11 @@ import { FORM_ZONES } from '../engine/status';
 import { POWER_KEY_LABEL, POWER_KEYS, type RiderMetrics, type TeamRider } from '../engine/team';
 import { BarChart, LineChart } from '../components/charts';
 import { LoadFocusCard } from '../components/insights';
-import { StatusIcon } from '../components/ui';
+import { StatusIcon, useToast } from '../components/ui';
 import type { ReadinessStatus } from '../engine/types';
 import { useApp } from '../lib/store';
 import { useTeam } from '../lib/team';
+import { CoachSchedule } from '../components/CoachSchedule';
 
 const dash = '—';
 const h1 = (v: number | null | undefined) => (v == null ? dash : v.toFixed(1));
@@ -38,6 +39,7 @@ export function TeamPage() {
   const meId = app.account?.id ?? (app.data.source === 'intervals' ? app.data.profile?.id : null) ?? null;
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'hours_this_week', dir: -1 });
   const [sel, setSel] = useState<string | null>(null);
+  const [toast, showToast] = useToast();
   const detailRef = useRef<HTMLDivElement>(null);
 
   const ok = useMemo(() => (team?.riders ?? []).filter((r) => r.state === 'ok'), [team]);
@@ -144,6 +146,18 @@ export function TeamPage() {
               : 'Add your intervals.icu (coach) API key in Settings to enable it.'}
         </div>
       )}
+
+      {t.source === 'url' && app.canPush && (!app.account || app.account.role === 'coach') && (
+        <details className="card more coach-sched">
+          <summary>
+            <b>Coach: schedule workouts for your riders</b>
+          </summary>
+          <div style={{ marginTop: 10 }}>
+            <CoachSchedule riders={ok} onToast={showToast} />
+          </div>
+        </details>
+      )}
+      {toast}
 
       <div className="team-tiles">
         {me && (
@@ -344,8 +358,7 @@ export function TeamPage() {
           <div className="card-head">
             <h2>Training load buckets · 4 weeks</h2>
           </div>
-          {hasDeep ? (
-            <>
+          <>
               <div className="legend">
                 {(['low', 'high', 'anaerobic'] as FocusKey[]).map((k) => (
                   <span key={k}>
@@ -355,37 +368,46 @@ export function TeamPage() {
                 ))}
               </div>
               <div className="stack" style={{ gap: 10 }}>
-                {ok
-                  .filter((r) => t.metrics[r.id]?.loadFocus)
-                  .map((r) => {
-                    const f = t.metrics[r.id].loadFocus!;
-                    const total = f.load.low + f.load.high + f.load.anaerobic;
-                    return (
-                      <div key={r.id} className="hrow">
-                        <div className="hrow-label">
-                          <span className="small" style={{ fontWeight: 600 }}>
-                            {r.rider}
-                          </span>
-                          <span className="tiny muted num">{total} TSS</span>
-                        </div>
-                        <div className="segbar thin-seg">
-                          {total > 0 &&
-                            (['low', 'high', 'anaerobic'] as FocusKey[]).map((k) =>
-                              f.share[k] > 0 ? <div key={k} style={{ flex: f.share[k], background: FOCUS_FILL[k] }} title={`${FOCUS_LABEL[k]} ${Math.round(f.share[k] * 100)}%`} /> : null,
-                            )}
-                        </div>
-                        <span className="hrow-val tiny">{f.shortage ? `${FOCUS_LABEL[f.shortage]} short` : total ? 'balanced' : 'no data'}</span>
+                {ok.map((r) => {
+                  const f = t.metrics[r.id]?.loadFocus ?? null;
+                  const d = t.deep[r.id];
+                  const total = f ? f.load.low + f.load.high + f.load.anaerobic : 0;
+                  const why = !f
+                    ? r.hidden_strava > 0
+                      ? `${r.hidden_strava} ride${r.hidden_strava === 1 ? '' : 's'} via Strava (hidden by intervals.icu)`
+                      : d?.error
+                        ? 'details not shared with your key'
+                        : 'no rides in the last 4 weeks'
+                    : null;
+                  return (
+                    <div key={r.id} className="hrow">
+                      <div className="hrow-label">
+                        <span className="small" style={{ fontWeight: 600 }}>
+                          {r.rider}
+                        </span>
+                        <span className="tiny muted num">
+                          {f ? `${f.estimated ? '≈ ' : ''}${Math.round(total)} TSS` : '—'}
+                        </span>
                       </div>
-                    );
-                  })}
+                      <div className="segbar thin-seg">
+                        {f &&
+                          total > 0 &&
+                          (['low', 'high', 'anaerobic'] as FocusKey[]).map((k) =>
+                            f.share[k] > 0 ? <div key={k} style={{ flex: f.share[k], background: FOCUS_FILL[k], opacity: f.estimated ? 0.7 : 1 }} title={`${FOCUS_LABEL[k]} ${Math.round(f.share[k] * 100)}%`} /> : null,
+                          )}
+                      </div>
+                      <span className="hrow-val tiny">
+                        {why ?? (f!.estimated ? 'estimate' : f!.shortage ? `${FOCUS_LABEL[f!.shortage]} short` : total ? 'balanced' : 'no data')}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
               <p className="tiny muted" style={{ marginTop: 8 }}>
-                Share of each rider’s training load: low aerobic (Z1-2), high aerobic (tempo → VO2max), anaerobic (above VO2max). Compared with general base-phase targets.
+                Share of each rider’s training load: low aerobic (Z1-2), high aerobic (tempo → VO2max), anaerobic (above VO2max). Compared with general base-phase targets.{' '}
+                <b>Estimate</b> (faded): that rider’s detailed data isn’t shared with your intervals.icu key, so it’s worked out from each ride’s average intensity in the team data — anaerobic work doesn’t show. To get exact buckets, the rider adds you as their coach in intervals.icu, then press “Load detailed metrics”.
               </p>
             </>
-          ) : (
-            <p className="small muted">Needs detailed metrics (button above).</p>
-          )}
         </div>
       </div>
 

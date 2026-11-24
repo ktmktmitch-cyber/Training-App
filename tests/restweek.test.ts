@@ -38,3 +38,42 @@ describe('chosen rest weeks', () => {
     expect(mondayOf(taper.start)).toBe(taper.start);
   });
 });
+
+import { withAwayWeeks } from '../src/engine/periodization';
+import { effectiveDayConfig } from '../src/engine/planner';
+
+describe('away weeks', () => {
+  it('plan no training that week and restart the cycle after it', () => {
+    const base = buildMacroPlan(defaultGoal(asOf), [], asOf);
+    const target = base.weeks.filter((w) => w.weekType === 'load')[2];
+    const goal = { ...defaultGoal(asOf), awayWeeks: [addDays(target.start, 3)] };
+    const plan = buildMacroPlan(goal, [], asOf);
+    const w = macroWeekFor(plan, target.start)!;
+    expect(w.userAway).toBe(true);
+    expect(w.volumeFactor).toBe(0);
+    const after = plan.weeks.filter((x) => diffDays(x.start, w.start) > 0).slice(0, 3);
+    expect(after.every((x) => x.weekType === 'load')).toBe(true);
+    // every day of that week is off in the planner
+    const ev = withAwayWeeks([], goal.awayWeeks);
+    for (let i = 0; i < 7; i++) expect(effectiveDayConfig(addDays(target.start, i), { startDate: asOf, hours: 8, days: {} }, ev, null).status).toBe('off');
+    expect(effectiveDayConfig(addDays(target.start, 7), { startDate: asOf, hours: 8, days: {} }, ev, null).status).toBe('available');
+  });
+});
+
+describe('weeks off next to scheduled recovery', () => {
+  it('turns a recovery week right before your week off into a loading week', () => {
+    const base = buildMacroPlan(defaultGoal(asOf), [], asOf);
+    const idx = base.weeks.findIndex((w, i) => i > 0 && w.weekType === 'recovery');
+    const next = base.weeks[idx + 1];
+    const plan = buildMacroPlan({ ...defaultGoal(asOf), awayWeeks: [next.start] }, [], asOf);
+    expect(plan.weeks[idx].weekType).toBe('load');
+    expect(plan.weeks[idx + 1].userAway).toBe(true);
+    let run = 0;
+    let maxRun = 0;
+    for (const w of plan.weeks) {
+      run = w.weekType === 'load' ? run + 1 : 0;
+      maxRun = Math.max(maxRun, run);
+    }
+    expect(maxRun).toBeLessThanOrEqual(4); // 3:1 pattern stretched by at most one week
+  });
+});

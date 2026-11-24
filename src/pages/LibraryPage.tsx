@@ -4,7 +4,8 @@ import { instantiate, levelForTarget } from '../engine/planner';
 import { DIFFICULTY_LABEL, PROG_LABEL, progressionCapable, TEMPLATE_ZONE, type Difficulty } from '../engine/progression';
 import { lthrZones, type ExportMode, type ExportTargets } from '../engine/targets';
 import type { WorkoutCategory } from '../engine/types';
-import { WORKOUT_BY_ID, WORKOUTS, type WorkoutTemplate } from '../engine/workouts';
+import { ALL_WORKOUTS, WORKOUT_BY_ID, type WorkoutTemplate } from '../engine/workouts';
+import { formatPace, type Sport } from '../engine/runswim';
 import { Skyline } from '../components/charts';
 import { StepsTable } from '../components/DayCard';
 import { ExportBar } from '../components/ExportBar';
@@ -23,6 +24,8 @@ export function LibraryPage() {
   const app = useApp();
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<WorkoutCategory | 'all'>('all');
+  const mode = app.settings.prefs.sport ?? 'cycling';
+  const [sport, setSport] = useState<Sport>(mode === 'running' ? 'run' : 'ride');
   const [tag, setTag] = useState<string>('all');
   const [maxMin, setMaxMin] = useState(0);
   const [sel, setSel] = useState<string | null>(null);
@@ -30,13 +33,13 @@ export function LibraryPage() {
 
   const list = useMemo(
     () =>
-      WORKOUTS.filter((t) => (cat === 'all' || t.category === cat) && (tag === 'all' || t.tags?.includes(tag)) && (!maxMin || t.minMin <= maxMin) && (!q || `${t.name} ${t.purpose}`.toLowerCase().includes(q.toLowerCase()))),
-    [cat, tag, maxMin, q],
+      ALL_WORKOUTS.filter((t) => (t.sport ?? 'ride') === sport && (cat === 'all' || t.category === cat) && (tag === 'all' || t.tags?.includes(tag)) && (!maxMin || t.minMin <= maxMin) && (!q || `${t.name} ${t.purpose}`.toLowerCase().includes(q.toLowerCase()))),
+    [cat, tag, maxMin, q, sport],
   );
   const previews = useMemo(
     () =>
       Object.fromEntries(
-        WORKOUTS.map((t) => {
+        ALL_WORKOUTS.map((t) => {
           const lvl = Math.floor((t.levels - 1) / 2);
           return [t.id, instantiate(t, previewDuration(t), lvl, null, undefined, [])];
         }),
@@ -53,7 +56,7 @@ export function LibraryPage() {
     <>
       <div className="row">
         <h1>Workout library</h1>
-        <span className="chip">{WORKOUTS.length} workouts</span>
+        <span className="chip">{ALL_WORKOUTS.length} workouts</span>
       </div>
       <p className="small ink2" style={{ marginTop: -8 }}>
         Pick any session, set the level and duration, then add it to your plan on any day or send it straight to intervals.icu / Garmin / Zwift.
@@ -62,6 +65,16 @@ export function LibraryPage() {
       <div ref={detailRef}>{sel && WORKOUT_BY_ID[sel] && <WorkoutDetail key={sel} t={WORKOUT_BY_ID[sel]} onClose={() => setSel(null)} />}</div>
 
       <div className="card stack">
+        <Seg<Sport>
+          value={sport}
+          onChange={(v) => { setSport(v); setCat('all'); setSel(null); }}
+          ariaLabel="Sport"
+          options={[
+            { value: 'ride', label: `Ride (${ALL_WORKOUTS.filter((t) => (t.sport ?? 'ride') === 'ride').length})` },
+            { value: 'run', label: `Run (${ALL_WORKOUTS.filter((t) => t.sport === 'run').length})` },
+            { value: 'swim', label: `Swim (${ALL_WORKOUTS.filter((t) => t.sport === 'swim').length})` },
+          ]}
+        />
         <div className="row">
           <input className="input" style={{ flex: '1 1 200px' }} placeholder="Search (e.g. 30/15, climb, threshold)" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search workouts" />
           <select className="select" value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Filter by tag">
@@ -82,7 +95,7 @@ export function LibraryPage() {
           </select>
         </div>
         <div className="row" style={{ gap: 6 }}>
-          {(['all', ...CATS] as const).map((c) => (
+          {(['all', ...CATS.filter((c) => ALL_WORKOUTS.some((t) => (t.sport ?? 'ride') === sport && t.category === c))] as const).map((c) => (
             <button key={c} className={`chip chip-btn ${cat === c ? 'on' : ''}`} onClick={() => setCat(c)}>
               {c === 'all' ? 'All' : CATEGORY_LABEL[c]}
             </button>
@@ -134,6 +147,8 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
   const lthrUse = Number(lthrIn) >= 100 && Number(lthrIn) <= 220 ? Math.round(Number(lthrIn)) : app.exportDefaults.lthr;
   const viewProfile = useMemo(() => (app.profile && lthrUse ? { ...app.profile, hrZones: lthrZones(lthrUse) } : app.profile ?? (lthrUse ? { id: 'x', name: '', ftp: ftpUse, eftp: null, lthr: lthrUse, maxHr: null, restingHr: null, weightKg: null, powerZones: [], hrZones: lthrZones(lthrUse) } : null)), [app.profile, lthrUse, ftpUse]);
   const libTargets: ExportTargets = { mode: tMode, ftp: ftpUse, lthr: lthrUse ?? null };
+  const tSport: Sport = t.sport ?? 'ride';
+  const paceMps = tSport === 'run' ? (app.settings.prefs.runPaceMps ?? app.profile?.runThresholdMps ?? null) : tSport === 'swim' ? (app.settings.prefs.swimCssMps ?? app.profile?.swimCssMps ?? null) : null;
 
   return (
     <div className="card stack-lg hero">
@@ -172,6 +187,12 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
         </label>
       </div>
 
+      {tSport !== 'ride' ? (
+        <p className="tiny muted">
+          Targets are % of your threshold {tSport === 'swim' ? 'swim pace (CSS)' : 'run pace'}
+          {paceMps ? ` (${formatPace(paceMps, tSport)}${tSport === 'swim' ? '/100 m' : '/km'})` : ' — set it in Settings → Your sport to see paces'}.
+        </p>
+      ) : (
       <div className="row" style={{ alignItems: 'flex-end' }}>
         <label className="field">
           <span>Targets</span>
@@ -200,6 +221,7 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
           {tMode === 'power' ? `Watts below are for ${ftpUse} W.` : lthrUse ? `bpm below are for a threshold HR of ${lthrUse}. Efforts under 2 min are by feel.` : 'Enter your threshold HR to see bpm targets.'}
         </span>
       </div>
+      )}
       {w.blocks.length > 0 && <Skyline blocks={w.blocks} large ftp={ftpUse} />}
       <div className="hero-stats">
         <div>
@@ -222,7 +244,7 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
       <details className="more" open>
         <summary>Steps & targets</summary>
         <div style={{ marginTop: 8 }}>
-          <StepsTable blocks={w.blocks} ftp={ftpUse} profile={viewProfile} mode={tMode} />
+          <StepsTable blocks={w.blocks} ftp={ftpUse} profile={viewProfile} mode={tMode} sport={tSport} paceMps={paceMps} />
         </div>
       </details>
       <p className="small">
@@ -254,7 +276,7 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
           {scheduledHere ? 'Replace in plan' : 'Add to my plan'}
         </button>
       </div>
-      <ExportBar workout={w} date={date} onDone={showToast} defaults={libTargets} />
+      <ExportBar workout={w} date={date} onDone={showToast} defaults={tSport === 'ride' ? libTargets : undefined} />
       <p className="tiny muted">
         <b>Garmin:</b> “Send to intervals.icu” lands on your Garmin calendar automatically if Garmin upload is on in intervals.icu. The .FIT file can also be copied to <code>Garmin/NewFiles</code> on your Edge or watch over USB. Zwift uses .zwo; most other indoor apps import .MRC.
       </p>

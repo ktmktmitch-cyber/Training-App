@@ -8,6 +8,7 @@ export interface ExportTargets {
   mode: ExportMode;
   ftp: number; // W — used for power targets
   lthr: number | null; // bpm — threshold (lactate threshold) heart rate, used for HR targets
+  paceMps?: number | null; // threshold pace as speed (runs), used for pace targets
 }
 
 /** Coggan power zone (1-5+) of a %FTP target. */
@@ -46,6 +47,9 @@ export function wattBand(s: Step, ftp: number): [number, number] {
   return [Math.round((s.low * ftp) / 100), Math.round((Math.max(s.low, s.high) * ftp) / 100)];
 }
 
-export function targetsLabel(t: ExportTargets): string {
-  return t.mode === 'hr' ? `heart rate (threshold HR ${t.lthr} bpm)` : `power (FTP ${t.ftp} W)`;
+export function targetsLabel(t: ExportTargets, sport: 'ride' | 'run' | 'swim' = 'ride'): string {
+  if (t.mode === 'hr') return `heart rate (threshold HR ${t.lthr} bpm)`;
+  if (sport === 'run') return t.paceMps ? `pace (threshold ${Math.floor(1000 / t.paceMps / 60)}:${String(Math.round((1000 / t.paceMps) % 60)).padStart(2, '0')}/km)` : 'pace (% of threshold)';
+  if (sport === 'swim') return 'pace (% of CSS)';
+  return `power (FTP ${t.ftp} W)`;
 }

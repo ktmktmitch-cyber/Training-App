@@ -11,6 +11,7 @@
 //  * Respect the CTL ramp-rate limit; readiness can trim volume and delay intensity.
 import { addDays, diffDays, dow, dowLong, dowShort, fmtMinutes, range } from './dates';
 import { fuelingFor } from './fueling';
+import { EXTERNAL_PREFIX } from './icuExport';
 import { buildMobility, type MobilitySession } from './mobility';
 import { longRideCap, weekProfile, type WeekProfile } from './profiles';
 import { macroWeekFor, PHASE_LABELS } from './periodization';
@@ -77,6 +78,8 @@ export function defaultDayCap(date: ISODate, hours: number): number {
   return hours >= 12 ? 150 : hours >= 8 ? 120 : 90;
 }
 
+const RIDE_EVENT_TYPES = new Set(['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide']);
+
 export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: CalendarEvent[], goalDate: ISODate | null): DayConfig {
   const user = week.days[date];
   if (user && user.status !== 'available') return user;
@@ -88,6 +91,9 @@ export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: Cale
     return { ...base, status: 'race', race: { name: race.name, durationMin: race.plannedSec ? Math.round(race.plannedSec / 60) : 120, priority } };
   }
   if (goalDate === date) return { ...base, status: 'race', race: { name: 'Goal event', durationMin: 180, priority: 'A' } };
+  // A ride already on the intervals.icu calendar (coach, TrainerRoad, …) — not one this app sent
+  const cal = evs.find((e) => e.category === 'WORKOUT' && (!e.type || RIDE_EVENT_TYPES.has(e.type)) && !(e.externalId ?? '').startsWith(`${EXTERNAL_PREFIX}-`) && e.date === date);
+  if (cal) return { ...base, status: 'scheduled', scheduled: { name: cal.name, durationMin: cal.plannedSec ? Math.round(cal.plannedSec / 60) : 60, tss: cal.plannedTss ?? null, description: cal.description ?? null, type: cal.type ?? null } };
   if (evs.some((e) => ['SICK', 'INJURED', 'HOLIDAY'].includes(e.category))) return { ...base, status: 'off' };
   return base;
 }
@@ -150,6 +156,7 @@ export function instantiate(
     fueling: '',
     key: t.key,
     level: lvl,
+    sport: t.sport ?? 'ride',
     progression: wl ? { zone: wl.zone, workoutLevel: wl.level, athleteLevel: pl, difficulty } : undefined,
     ...overrides,
   };
@@ -290,6 +297,28 @@ export function planWeek(input: PlanInput): WeekPlan {
         fueling: '',
         key: g.intensity === 'hard' || g.intensity === 'race',
         fixed: 'group',
+      };
+      w.fueling = fuelingFor(w, input.profile.weightKg);
+      ctx.rides[d] = w;
+      ctx.locked.add(d);
+      if (w.key) fixedHard++;
+    } else if (c.status === 'scheduled' && c.scheduled) {
+      const sc = c.scheduled;
+      const ifac = sc.tss && sc.durationMin ? Math.min(1.1, Math.max(0.5, Math.sqrt(sc.tss / ((sc.durationMin / 60) * 100)))) : 0.72;
+      const w: PlannedWorkout = {
+        templateId: 'calendar',
+        name: sc.name,
+        category: ifac >= 0.88 ? 'threshold' : ifac >= 0.8 ? 'sweetspot' : ifac >= 0.75 ? 'tempo' : 'endurance',
+        intensity: ifac >= 0.82 ? 'hard' : ifac >= 0.75 ? 'moderate' : 'easy',
+        durationMin: sc.durationMin,
+        tss: sc.tss ?? tssFromIf(sc.durationMin, ifac),
+        ifactor: Math.round(ifac * 100) / 100,
+        blocks: [],
+        purpose: sc.description?.trim() || 'Scheduled on your intervals.icu calendar.',
+        why: ['Already on your intervals.icu calendar (e.g. from your coach), so the rest of the week is planned around it. Pick another workout here to override it.'],
+        fueling: '',
+        key: ifac >= 0.82,
+        fixed: 'calendar',
       };
       w.fueling = fuelingFor(w, input.profile.weightKg);
       ctx.rides[d] = w;
@@ -755,7 +784,7 @@ export interface Alternative {
  * alternative suggestions and TrainerRoad's easier/harder alternates).
  */
 export function workoutAlternatives(w: PlannedWorkout, progression: Progression | undefined, weightKg: number | null): Alternative[] {
-  if (w.fixed === 'group' || w.category === 'race' || !WORKOUT_BY_ID[w.templateId]) return [];
+  if (w.fixed === 'group' || w.fixed === 'calendar' || w.category === 'race' || !WORKOUT_BY_ID[w.templateId] || (w.sport ?? 'ride') !== 'ride') return [];
   const t = getTemplate(w.templateId);
   const zone = TEMPLATE_ZONE[t.id];
   const pl = zone && zone !== 'endurance' && progressionCapable(t) && progression?.[zone]?.source === 'history' ? progression[zone].level : null;

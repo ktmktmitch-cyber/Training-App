@@ -1384,3 +1384,54 @@ tr.me .sticky-col {
 .chip.pri-A { background: var(--accent); color: var(--on-accent, #fff); font-weight: 700; }
 .chip.pri-B { font-weight: 700; }
 .chip.pri-C { font-weight: 600; opacity: 0.85; }
+
+/* Calendar */
+.cal { padding: 10px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)) 96px; gap: 4px; }
+.cal-head > div { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; }
+.cal-row { margin-top: 4px; border-radius: 10px; }
+.cal-row.rest-week { background: color-mix(in srgb, var(--good) 8%, transparent); }
+.cal-day {
+  all: unset; box-sizing: border-box; cursor: pointer; min-height: 86px; padding: 5px 6px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface);
+  display: flex; flex-direction: column; gap: 3px; overflow: hidden; min-width: 0;
+}
+.cal-day:hover { border-color: var(--accent); }
+.cal-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cal-day.out { opacity: 0.45; }
+.cal-day.today .cal-dom { color: var(--accent); }
+.cal-day.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-dom { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 4px; }
+.cal-dot { width: 14px; height: 14px; border-radius: 50%; font-size: 9px; color: #fff; display: inline-grid; place-items: center; }
+.cal-tag { width: 6px; height: 6px; border-radius: 50%; background: var(--s2); margin-left: auto; }
+.cal-item { font-size: 11px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 1px 4px; border-radius: 4px; border-left: 3px solid var(--muted); }
+.cal-item.done.s-ride { border-left-color: var(--s1); }
+.cal-item.done.s-run { border-left-color: var(--s2); }
+.cal-item.done.s-swim { border-left-color: var(--s3); }
+.cal-item.done.s-strength { border-left-color: var(--s4); }
+.cal-item.plan { border-left-style: dashed; color: var(--ink-2); }
+.cal-item.race { font-weight: 700; border-left-color: var(--accent); }
+.cal-wk { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 4px 6px; min-width: 0; }
+.cal-act { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.cal-act:last-child { border-bottom: 0; }
+@media (max-width: 720px) {
+  .cal { padding: 6px; }
+  .cal-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+  .cal-wk { display: none; }
+  .cal-day { min-height: 58px; padding: 3px; }
+  .cal-item { font-size: 9.5px; padding: 0 2px; border-left-width: 2px; }
+  .cal-item .muted { display: none; }
+}
+
+/* Clickable timeline weeks & weeks-off list */
+button.tl-week { border: 0; padding: 0; cursor: pointer; font: inherit; }
+button.tl-week:disabled { cursor: default; }
+button.tl-week:not(:disabled):hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tl-week.mine { background-image: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--surface) 55%, transparent) 3px 5px) !important; }
+.weeks-off { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.weeks-off li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.weeks-off li:last-child { border-bottom: 0; }
+.cal-item.plan.s-run { border-left-color: var(--s2); }
+.cal-item.plan.s-swim { border-left-color: var(--s3); }
+.extra-session { border-top: 1px solid var(--border); padding-top: 10px; }

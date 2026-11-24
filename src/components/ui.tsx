@@ -110,7 +110,7 @@ export function useToast(): [ReactNode, (msg: string) => void] {
   return [msg ? <div className="toast" role="status">{msg}</div> : null, setMsg];
 }
 
-export function Icon({ name, size = 18 }: { name: 'week' | 'season' | 'trends' | 'strength' | 'settings' | 'guide' | 'bolt' | 'sync' | 'library' | 'more' | 'team'; size?: number }) {
+export function Icon({ name, size = 18 }: { name: 'week' | 'calendar' | 'season' | 'trends' | 'strength' | 'settings' | 'guide' | 'bolt' | 'sync' | 'library' | 'more' | 'team'; size?: number }) {
   const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   switch (name) {
     case 'week':
@@ -118,6 +118,13 @@ export function Icon({ name, size = 18 }: { name: 'week' | 'season' | 'trends' |
         <svg {...p}>
           <rect x="3" y="4" width="18" height="17" rx="3" />
           <path d="M3 9h18M8 2v4M16 2v4" />
+        </svg>
+      );
+    case 'calendar':
+      return (
+        <svg {...p}>
+          <rect x="3" y="4" width="18" height="17" rx="3" />
+          <path d="M3 9h18M8 2v4M16 2v4M7.5 13h2M11 13h2M14.5 13h2M7.5 17h2M11 17h2" />
         </svg>
       );
     case 'season':

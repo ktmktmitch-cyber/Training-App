@@ -307,3 +307,28 @@ describe('strength', () => {
     expect(dl.exercises[0].sets).toBeLessThan(gym.exercises[0].sets);
   });
 });
+
+describe('workouts already on the intervals.icu calendar', () => {
+  it('are kept as fixed sessions and not overwritten by the push', () => {
+    const inp = baseInput();
+    const day = addDays(inp.startDate, 2);
+    const plan = planWeek({
+      ...inp,
+      events: [
+        { id: '77', date: day, category: 'WORKOUT', type: 'Ride', name: 'Coach: 3x10 threshold', plannedSec: 5400, plannedTss: 112, externalId: null, description: '3x10min @ 95-100%' },
+        { id: '78', date: addDays(inp.startDate, 3), category: 'WORKOUT', type: 'Ride', name: 'Old app push', plannedSec: 3600, plannedTss: 50, externalId: `trainingapp-${addDays(inp.startDate, 3)}-ride` },
+      ],
+    });
+    const d = plan.days.find((x) => x.date === day)!;
+    expect(d.status).toBe('scheduled');
+    expect(d.ride?.name).toBe('Coach: 3x10 threshold');
+    expect(d.ride?.fixed).toBe('calendar');
+    expect(d.ride?.durationMin).toBe(90);
+    expect(d.ride?.key).toBe(true);
+    // the app's own earlier push is not treated as a fixed workout
+    expect(plan.days.find((x) => x.date === addDays(inp.startDate, 3))!.ride?.fixed).not.toBe('calendar');
+    // pushing the week doesn't send a duplicate for the coach's workout
+    const evs = plan.days.flatMap((x) => dayToIcuEvents(x, inp.profile, 'power'));
+    expect(evs.some((e) => e.start_date_local.startsWith(day) && e.type === 'Ride')).toBe(false);
+  });
+});

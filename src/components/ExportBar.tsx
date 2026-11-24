@@ -4,6 +4,7 @@ import { workoutDescription } from '../engine/icuExport';
 import { targetsLabel, type ExportMode, type ExportTargets } from '../engine/targets';
 import type { ISODate, PlannedWorkout } from '../engine/types';
 import { workoutToZwo } from '../engine/zwo';
+import { formatPace, parsePace } from '../engine/runswim';
 import { useApp } from '../lib/store';
 import { Seg } from './ui';
 
@@ -48,6 +49,10 @@ export function ExportBar({ workout, date, onDone, compact, defaults }: { workou
   const [ftp, setFtp] = useState<string>(String(base0.ftp));
   const [lthr, setLthr] = useState<string>(base0.lthr ? String(base0.lthr) : '');
   const structured = workout.blocks.length > 0;
+  const sport = workout.sport ?? 'ride';
+  const defaultPace = app.settings.prefs.runPaceMps ?? app.profile?.runThresholdMps ?? null;
+  const [pace, setPace] = useState(formatPace(defaultPace, 'run'));
+  const dests = (Object.keys(DEST) as Dest[]).filter((d) => sport === 'ride' || d === 'icu' || d === 'copy' || (d === 'fit' && sport === 'run'));
   const base = safeFileName(workout.name);
   const say = (m: string) => onDone?.(m);
   if (!structured) return null;
@@ -57,7 +62,8 @@ export function ExportBar({ workout, date, onDone, compact, defaults }: { workou
     const b = defaults ?? app.exportDefaults;
     setMode(b.mode);
     setFtp(String(b.ftp));
-    setLthr(b.lthr ? String(b.lthr) : lthr);
+    setLthr(sport === 'run' && app.profile?.runLthr ? String(app.profile.runLthr) : b.lthr ? String(b.lthr) : lthr);
+    setPace(formatPace(defaultPace, 'run'));
     setDest(d);
   };
 
@@ -65,9 +71,11 @@ export function ExportBar({ workout, date, onDone, compact, defaults }: { workou
   const lthrN = Number(lthr);
   const powerOnly = dest ? !DEST[dest].hr : false;
   const effMode: ExportMode = powerOnly ? 'power' : mode;
-  const valid = effMode === 'power' ? ftpN >= 50 && ftpN <= 700 : lthrN >= 100 && lthrN <= 220;
-  const targets: ExportTargets = { mode: effMode, ftp: Math.round(ftpN), lthr: lthrN ? Math.round(lthrN) : null };
-  const suffix = effMode === 'hr' ? `_HR${targets.lthr}` : `_${targets.ftp}W`;
+  const paceMps = sport === 'run' && pace.trim() ? parsePace(pace, 'run') : null;
+  const valid =
+    effMode === 'hr' ? lthrN >= 100 && lthrN <= 220 : sport === 'ride' ? ftpN >= 50 && ftpN <= 700 : sport === 'run' ? !pace.trim() || (paceMps != null && paceMps > 2 && paceMps < 7) : true;
+  const targets: ExportTargets = { mode: effMode, ftp: Math.round(ftpN), lthr: lthrN ? Math.round(lthrN) : null, paceMps };
+  const suffix = effMode === 'hr' ? `_HR${targets.lthr}` : sport === 'ride' ? `_${targets.ftp}W` : paceMps ? `_${pace.replace(':', 'm')}` : '';
 
   const confirm = async () => {
     if (!dest || !valid) return;
@@ -89,11 +97,11 @@ export function ExportBar({ workout, date, onDone, compact, defaults }: { workou
     if (dest === 'copy') {
       try {
         await navigator.clipboard.writeText(workoutDescription(workout, effMode, { targets, icuLthr: app.profile?.lthr ?? null }));
-        say(`Copied in intervals.icu format — ${targetsLabel(targets)}.`);
+        say(`Copied in intervals.icu format — ${targetsLabel(targets, sport)}.`);
       } catch {
         say('Clipboard not available.');
       }
-    } else say(`Exported ${DEST[dest].label} — ${powerOnly ? '% FTP (scaled by the app you open it in)' : targetsLabel(targets)}.`);
+    } else say(`Exported ${DEST[dest].label} — ${powerOnly ? '% FTP (scaled by the app you open it in)' : targetsLabel(targets, sport)}.`);
     setDest(null);
   };
 
@@ -101,7 +109,7 @@ export function ExportBar({ workout, date, onDone, compact, defaults }: { workou
     <div className="stack" style={{ gap: 6 }}>
       {!compact && <span className="tiny muted" style={{ fontWeight: 600 }}>Export</span>}
       <div className="row" style={{ gap: 6 }}>
-        {(Object.keys(DEST) as Dest[]).map((d) => (
+        {dests.map((d) => (
           <button
             key={d}
             className={`btn sm ${d === 'icu' ? 'primary' : d === 'copy' ? 'ghost' : ''} ${dest === d ? 'active' : ''}`}
@@ -117,7 +125,7 @@ export function ExportBar({ workout, date, onDone, compact, defaults }: { workou
       {dest && (
         <div className="card stack export-confirm" style={{ gap: 10, padding: 12 }} role="dialog" aria-label="Confirm export targets">
           <div className="small" style={{ fontWeight: 600 }}>
-            {DEST[dest].label}: export based on power or heart rate?
+            {DEST[dest].label}: export based on {sport === 'ride' ? 'power' : 'pace'} or heart rate?
           </div>
           {powerOnly ? (
             <p className="tiny muted">{DEST[dest].note} Use Garmin .FIT or intervals.icu for heart-rate targets.</p>
@@ -127,12 +135,20 @@ export function ExportBar({ workout, date, onDone, compact, defaults }: { workou
               onChange={setMode}
               ariaLabel="Export targets"
               options={[
-                { value: 'power', label: 'Power' },
+                { value: 'power', label: sport === 'ride' ? 'Power' : 'Pace' },
                 { value: 'hr', label: 'Heart rate' },
               ]}
             />
           )}
-          {!powerOnly && effMode === 'power' && (
+          {sport === 'run' && effMode === 'power' && (
+            <label className="field">
+              <span>Threshold pace (min:sec per km){app.profile?.runThresholdMps ? ` · intervals.icu: ${formatPace(app.profile.runThresholdMps, 'run')}` : ''}</span>
+              <input className="input num" value={pace} placeholder="e.g. 4:30" onChange={(e) => setPace(e.target.value)} aria-label="Threshold pace for export" style={{ maxWidth: 140 }} />
+              <span className="tiny muted">{dest === 'fit' ? (paceMps ? 'Garmin gets pace ranges for every step.' : 'Without a threshold pace the steps are by feel (open targets).') : 'intervals.icu shows the steps as % of the threshold pace in your intervals.icu settings.'}</span>
+            </label>
+          )}
+          {sport === 'swim' && effMode === 'power' && <p className="tiny muted">Swim steps are % of your CSS (threshold swim pace) set in intervals.icu.</p>}
+          {!powerOnly && sport === 'ride' && effMode === 'power' && (
             <label className="field">
               <span>FTP (W) · default is your eFTP{app.profile?.eftp ? ` (${Math.round(app.profile.eftp)} W)` : ''}</span>
               <input className="input num" type="number" min={50} max={700} value={ftp} onChange={(e) => setFtp(e.target.value)} aria-label="FTP for export" style={{ maxWidth: 140 }} />
@@ -145,10 +161,10 @@ export function ExportBar({ workout, date, onDone, compact, defaults }: { workou
               <span className="tiny muted">Steps of 2 min or longer get bpm ranges; shorter efforts are ridden by feel.</span>
             </label>
           )}
-          {!valid && <span className="tiny" style={{ color: 'var(--bad)' }}>{effMode === 'power' ? 'Enter an FTP between 50 and 700 W.' : 'Enter a threshold HR between 100 and 220 bpm.'}</span>}
+          {!valid && <span className="tiny" style={{ color: 'var(--critical-ink)' }}>{effMode === 'hr' ? 'Enter a threshold HR between 100 and 220 bpm.' : sport === 'run' ? 'Enter pace as min:sec, e.g. 4:30.' : 'Enter an FTP between 50 and 700 W.'}</span>}
           <div className="row" style={{ gap: 6 }}>
             <button className="btn sm primary" onClick={confirm} disabled={!valid || busy}>
-              {busy ? 'Sending…' : `${DEST[dest].action}${powerOnly ? '' : effMode === 'hr' ? ` · HR ${lthr} bpm` : ` · ${ftp} W`}`}
+              {busy ? 'Sending…' : `${DEST[dest].action}${powerOnly ? '' : effMode === 'hr' ? ` · HR ${lthr} bpm` : sport === 'ride' ? ` · ${ftp} W` : sport === 'run' && paceMps ? ` · ${pace}/km` : ''}`}
             </button>
             <button className="btn sm ghost" onClick={() => setDest(null)}>
               Cancel

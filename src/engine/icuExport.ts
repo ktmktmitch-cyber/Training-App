@@ -35,10 +35,19 @@ function hrZoneFor(pct: number): string {
   return 'Z5 HR';
 }
 
-function stepLine(st: Step, mode: TargetMode, abs?: AbsTargets): string {
+function stepLine(st: Step, mode: TargetMode, abs?: AbsTargets, sport: 'ride' | 'run' | 'swim' = 'ride'): string {
   const dur = fmtDur(st.durationSec);
   let target: string;
   const t = abs?.targets;
+  if (sport !== 'ride') {
+    // Runs & swims: % of threshold pace (intervals.icu "% Pace"), or HR zones for long steps in HR mode
+    const hr = (t?.mode ?? mode) === 'hr' && st.durationSec >= 120;
+    if (hr) target = hrZoneFor((st.low + st.high) / 2);
+    else if (st.ramp) target = `ramp ${Math.round(st.low)}-${Math.round(st.high)}% Pace`;
+    else target = Math.round(st.low) === Math.round(st.high) ? `${Math.round(st.low)}% Pace` : `${Math.round(st.low)}-${Math.round(st.high)}% Pace`;
+    const label = st.label ? `${st.label} ` : '';
+    return `- ${label}${dur} ${target}`;
+  }
   if (t?.mode === 'hr' && t.lthr && hrSteerable(st)) {
     const ref = abs?.icuLthr || t.lthr;
     const [lo, hi] = hrBand(st, t.lthr);
@@ -64,12 +73,12 @@ function stepLine(st: Step, mode: TargetMode, abs?: AbsTargets): string {
   return `- ${label}${dur} ${target}${cad}`;
 }
 
-export function blocksToIcuText(blocks: Block[], mode: TargetMode, abs?: AbsTargets): string {
+export function blocksToIcuText(blocks: Block[], mode: TargetMode, abs?: AbsTargets, sport: 'ride' | 'run' | 'swim' = 'ride'): string {
   const out: string[] = [];
   blocks.forEach((b, i) => {
     const header = b.reps > 1 ? `${b.name ?? 'Set'} ${b.reps}x` : b.name ?? (i === 0 ? 'Warmup' : 'Recover');
     out.push(header);
-    for (const st of b.steps) out.push(stepLine(st, mode, abs));
+    for (const st of b.steps) out.push(stepLine(st, mode, abs, sport));
     out.push('');
   });
   return out.join('\n').trim();
@@ -78,10 +87,11 @@ export function blocksToIcuText(blocks: Block[], mode: TargetMode, abs?: AbsTarg
 export function workoutDescription(w: PlannedWorkout, mode: TargetMode, abs?: AbsTargets): string {
   const parts = [w.purpose];
   const t = abs?.targets;
-  if (t) parts.push('', t.mode === 'hr' ? `Targets: heart rate, threshold HR ${t.lthr} bpm.` : `Targets: power, FTP ${t.ftp} W.`);
-  if (w.blocks.length) parts.push('', blocksToIcuText(w.blocks, t ? t.mode : mode, abs));
+  const sport = w.sport ?? 'ride';
+  if (t) parts.push('', t.mode === 'hr' ? `Targets: heart rate, threshold HR ${t.lthr} bpm.` : sport === 'ride' ? `Targets: power, FTP ${t.ftp} W.` : `Targets: % of threshold ${sport === 'swim' ? 'swim pace (CSS)' : 'pace'}.`);
+  if (w.blocks.length) parts.push('', blocksToIcuText(w.blocks, t ? t.mode : mode, abs, sport));
   if (w.fueling) parts.push('', `Fueling: ${w.fueling}`);
-  if ((t ? t.mode : mode) === 'hr') parts.push('', 'Short efforts (<2 min) keep power targets — ride them by feel (RPE 9) if you have no power meter.');
+  if ((t ? t.mode : mode) === 'hr') parts.push('', sport === 'ride' ? 'Short efforts (<2 min) keep power targets — ride them by feel (RPE 9) if you have no power meter.' : 'Short efforts (<2 min) keep pace targets — run/swim them by feel.');
   return parts.join('\n');
 }
 
@@ -104,16 +114,19 @@ export interface IcuEvent {
 
 export const EXTERNAL_PREFIX = 'trainingapp';
 
+/** intervals.icu activity type for each sport */
+export const ICU_TYPE: Record<'ride' | 'run' | 'swim', string> = { ride: 'Ride', run: 'Run', swim: 'Swim' };
+
 export function dayToIcuEvents(day: PlannedDay, _profile: AthleteProfile, mode: TargetMode): IcuEvent[] {
   const out: IcuEvent[] = [];
   const start = `${day.date}T00:00:00`;
   const r = day.ride;
   // Don't duplicate events the athlete already has (group rides are added as notes-only workouts, races are on the calendar)
-  if (r && r.category !== 'race') {
+  if (r && r.category !== 'race' && r.fixed !== 'calendar') {
     out.push({
       category: 'WORKOUT',
       start_date_local: start,
-      type: 'Ride',
+      type: ICU_TYPE[r.sport ?? 'ride'],
       name: r.name,
       description: r.fixed === 'group' ? `${r.purpose}\n\nFueling: ${r.fueling}` : workoutDescription(r, mode),
       moving_time: Math.round(r.durationMin * 60),
@@ -132,6 +145,18 @@ export function dayToIcuEvents(day: PlannedDay, _profile: AthleteProfile, mode: 
       external_id: `${EXTERNAL_PREFIX}-${day.date}-strength`,
     });
   }
+  (day.extras ?? []).forEach((w, i) => {
+    out.push({
+      category: 'WORKOUT',
+      start_date_local: start,
+      type: ICU_TYPE[w.sport ?? 'ride'],
+      name: w.name,
+      description: workoutDescription(w, mode),
+      moving_time: Math.round(w.durationMin * 60),
+      icu_training_load: w.tss,
+      external_id: `${EXTERNAL_PREFIX}-${day.date}-x${i}`,
+    });
+  });
   if (day.mobility) {
     out.push({
       category: 'WORKOUT',
@@ -147,5 +172,5 @@ export function dayToIcuEvents(day: PlannedDay, _profile: AthleteProfile, mode: 
 }
 
 export function allExternalIdsFor(date: string): string[] {
-  return [`${EXTERNAL_PREFIX}-${date}-ride`, `${EXTERNAL_PREFIX}-${date}-strength`, `${EXTERNAL_PREFIX}-${date}-mobility`];
+  return [`${EXTERNAL_PREFIX}-${date}-ride`, `${EXTERNAL_PREFIX}-${date}-strength`, `${EXTERNAL_PREFIX}-${date}-mobility`, ...[0, 1, 2, 3].map((i) => `${EXTERNAL_PREFIX}-${date}-x${i}`)];
 }

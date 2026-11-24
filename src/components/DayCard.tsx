@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { dowShort, fmtMinutes, fromISO } from '../engine/dates';
 import type { AthleteProfile, Block, GroupIntensity, PlannedDay, TargetMode } from '../engine/types';
 import { workoutAlternatives } from '../engine/planner';
 import { DIFFICULTY_LABEL, type Difficulty, type Progression } from '../engine/progression';
-import { WORKOUTS } from '../engine/workouts';
+import { paceLabel, type Sport } from '../engine/runswim';
+import { ALL_WORKOUTS } from '../engine/workouts';
+import { useApp } from '../lib/store';
 import { Skyline } from './charts';
 import { ExportBar } from './ExportBar';
 import { MobilityBlock } from './MobilityCard';
@@ -17,7 +19,8 @@ function fmtStep(sec: number) {
   return s ? `${m}:${String(s).padStart(2, '0')}` : `${m} min`;
 }
 
-export function StepsTable({ blocks, ftp, profile, mode }: { blocks: Block[]; ftp: number; profile: AthleteProfile | null; mode: TargetMode }) {
+export function StepsTable({ blocks, ftp, profile, mode, sport = 'ride', paceMps }: { blocks: Block[]; ftp: number; profile: AthleteProfile | null; mode: TargetMode; sport?: Sport; paceMps?: number | null }) {
+  if (sport !== 'ride') return <PaceSteps blocks={blocks} sport={sport} paceMps={paceMps ?? null} />;
   return (
     <div className="table-wrap">
       <table className="steps">
@@ -33,6 +36,54 @@ export function StepsTable({ blocks, ftp, profile, mode }: { blocks: Block[]; ft
         <tbody>
           {blocks.map((b, bi) => (
             <BlockRows key={bi} b={b} ftp={ftp} profile={profile} mode={mode} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PaceSteps({ blocks, sport, paceMps }: { blocks: Block[]; sport: Sport; paceMps: number | null }) {
+  return (
+    <div className="table-wrap">
+      <table className="steps">
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th className="num">Time</th>
+            <th className="num">% {sport === 'swim' ? 'CSS' : 'threshold pace'}</th>
+            <th className="num">Pace</th>
+          </tr>
+        </thead>
+        <tbody>
+          {blocks.map((b, bi) => (
+            <Fragment key={bi}>
+              {(b.reps > 1 || b.name) && (
+                <tr className="set-head">
+                  <td colSpan={4}>
+                    {b.name ?? 'Recover'}
+                    {b.reps > 1 ? ` · ${b.reps}×` : ''}
+                  </td>
+                </tr>
+              )}
+              {b.steps.map((st, i) => {
+                const pct = st.ramp ? `${st.low}→${st.high}%` : st.low === st.high ? `${st.low}%` : `${st.low}-${st.high}%`;
+                const pl = (x: number) => paceLabel(x, paceMps, sport)?.replace(/\/.*$/, '') ?? null;
+                // faster % = quicker pace, so the high % gives the low time
+                const pace = paceMps && st.low > 55 ? (st.low === st.high ? pl(st.low) : `${pl(st.high)}–${pl(st.low)}`) : st.low <= 55 ? 'rest' : 'by feel';
+                return (
+                  <tr key={i}>
+                    <td>{st.label ?? (st.low >= 100 ? 'Hard' : st.low <= 72 ? 'Easy' : 'Steady')}</td>
+                    <td className="num">{fmtStep(st.durationSec)}</td>
+                    <td className="num">{pct}</td>
+                    <td className="num">
+                      {pace}
+                      {paceMps && st.low > 55 ? <span className="muted">{sport === 'swim' ? '/100m' : '/km'}</span> : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -73,6 +124,8 @@ function BlockRows({ b, ftp, profile, mode }: { b: Block; ftp: number; profile: 
   );
 }
 
+const SPORT_NAME: Record<Sport, string> = { ride: 'Ride', run: 'Run', swim: 'Swim' };
+
 export function DayCard(props: {
   day: PlannedDay;
   ftp: number;
@@ -94,8 +147,15 @@ export function DayCard(props: {
   const [swapId, setSwapId] = useState(r?.templateId && !['group', 'race'].includes(r.templateId) ? r.templateId : 'endurance');
   const [swapDur, setSwapDur] = useState(r?.durationMin ?? 60);
   const [grp, setGrp] = useState(() => props.groupCfg ?? { name: '', durationMin: 120, intensity: 'hard' as GroupIntensity });
+  const app = useApp();
+  const mode2 = app.settings.prefs.sport ?? 'cycling';
+  const sportsAllowed: Sport[] = mode2 === 'cycling' ? ['ride'] : mode2 === 'running' ? ['run'] : mode2 === 'run_bike' ? ['ride', 'run'] : ['ride', 'run', 'swim'];
+  const paceFor = (sp: Sport) => (sp === 'run' ? (app.settings.prefs.runPaceMps ?? profile?.runThresholdMps ?? null) : sp === 'swim' ? (app.settings.prefs.swimCssMps ?? profile?.swimCssMps ?? null) : null);
+  const extras = day.extras ?? [];
   const off = day.status === 'off';
-  const title = r ? r.name : off ? 'Unavailable' : 'Rest day';
+  const title = r ? r.name : extras[0] ? extras[0].name : off ? 'Unavailable' : 'Rest day';
+  const allMin = (r?.durationMin ?? 0) + extras.reduce((a, x) => a + x.durationMin, 0);
+  const allTss = (r?.tss ?? 0) + extras.reduce((a, x) => a + x.tss, 0);
   const d = fromISO(day.date);
 
   return (
@@ -114,14 +174,21 @@ export function DayCard(props: {
             {r?.fixed === 'group' && <span className="chip">Your group ride</span>}
             {r?.fixed === 'pinned' && <span className="chip">Your pick</span>}
             {day.mobility && <span className="chip">Mobility {day.mobility.minutes}′</span>}
+            {r && (r.sport ?? 'ride') !== 'ride' && <span className="chip">{SPORT_NAME[r.sport!]}</span>}
+            {extras.map((x, i) => (
+              <span key={i} className="chip">
+                {r || i > 0 ? '+ ' : ''}
+                {SPORT_NAME[x.sport ?? 'ride']} {fmtMinutes(x.durationMin)}
+              </span>
+            ))}
           </div>
           {r && r.blocks.length > 0 && <Skyline blocks={r.blocks} />}
         </div>
         <div className="day-right">
-          {r ? (
+          {r || extras.length ? (
             <>
-              <div className="dur num">{fmtMinutes(r.durationMin)}</div>
-              <div className="tiny muted num">{r.tss} TSS</div>
+              <div className="dur num">{fmtMinutes(allMin)}</div>
+              <div className="tiny muted num">{allTss} TSS</div>
             </>
           ) : (
             <div className="tiny muted">{day.strength ? `${day.strength.durationMin} min lift` : '—'}</div>
@@ -137,9 +204,14 @@ export function DayCard(props: {
                 <>
                   <Skyline blocks={r.blocks} large ftp={ftp} />
                   <div className="row tiny muted">
-                    <span>IF {r.ifactor.toFixed(2)}</span>·<span>{r.tss} TSS</span>·<span>FTP {ftp} W</span>
+                    <span>IF {r.ifactor.toFixed(2)}</span>·<span>{r.tss} TSS</span>
+                    {(r.sport ?? 'ride') === 'ride' && (
+                      <>
+                        ·<span>FTP {ftp} W</span>
+                      </>
+                    )}
                   </div>
-                  <StepsTable blocks={r.blocks} ftp={ftp} profile={profile} mode={mode} />
+                  <StepsTable blocks={r.blocks} ftp={ftp} profile={profile} mode={mode} sport={r.sport ?? 'ride'} paceMps={paceFor(r.sport ?? 'ride')} />
                 </>
               )}
               {r.why.length > 0 && (
@@ -156,6 +228,23 @@ export function DayCard(props: {
               )}
             </div>
           )}
+          {extras.map((x, i) => (
+            <div key={i} className="stack extra-session">
+              <div className="row" style={{ alignItems: 'baseline' }}>
+                <h3 style={{ margin: 0 }}>
+                  {SPORT_NAME[x.sport ?? 'ride']} · {x.name}
+                </h3>
+                <span className="spacer" />
+                <span className="chip">
+                  {fmtMinutes(x.durationMin)} · {x.tss} TSS
+                </span>
+              </div>
+              <p className="small ink2">{x.purpose}</p>
+              {x.blocks.length > 0 && <StepsTable blocks={x.blocks} ftp={ftp} profile={profile} mode={mode} sport={x.sport ?? 'ride'} paceMps={paceFor(x.sport ?? 'ride')} />}
+              {x.why.length > 0 && <p className="tiny muted">{x.why.join(' ')}</p>}
+              {x.blocks.length > 0 && <ExportBar workout={x} date={day.date} onDone={props.onToast} compact />}
+            </div>
+          ))}
           {day.notes.length > 0 && (
             <ul className="why">
               {day.notes.map((n, i) => (
@@ -284,7 +373,7 @@ export function DayCard(props: {
               <span>Swap workout</span>
               <select className="select" value={swapId} onChange={(e) => setSwapId(e.target.value)}>
                 {(['recovery', 'endurance', 'tempo', 'sweetspot', 'threshold', 'vo2max', 'anaerobic', 'sprint', 'race_sim', 'durability', 'openers', 'test'] as const).map((cat) => {
-                  const ws = WORKOUTS.filter((w) => w.category === cat);
+                  const ws = ALL_WORKOUTS.filter((w) => w.category === cat && sportsAllowed.includes(w.sport ?? 'ride'));
                   return ws.length ? (
                     <optgroup key={cat} label={CATEGORY_LABEL[cat]}>
                       {ws.map((w) => (
