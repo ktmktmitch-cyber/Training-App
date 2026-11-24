@@ -102,7 +102,7 @@ export function strengthDescription(s: StrengthSession): string {
 }
 
 export interface IcuEvent {
-  category: 'WORKOUT' | 'NOTE';
+  category: 'WORKOUT' | 'NOTE' | 'RACE_A' | 'RACE_B' | 'RACE_C' | 'HOLIDAY';
   start_date_local: string;
   type: string;
   name: string;

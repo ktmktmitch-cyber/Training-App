@@ -90,13 +90,6 @@ export function LoginPage() {
               </button>
             </form>
             {error && <div className="callout bad">{error}</div>}
-            <div className="divider" style={{ margin: 0 }} />
-            <div className="row">
-              <span className="small muted">Just looking?</span>
-              <button className="btn sm ghost" onClick={() => auth.setGuest(true)}>
-                Explore the demo
-              </button>
-            </div>
           </>
         )}
       </div>

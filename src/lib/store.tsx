@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { addDays, diffDays, dow, range, today } from '../engine/dates';
 import { computeCompliance, missedKeySessions, type ComplianceDay, type PlanSnapshot } from '../engine/compliance';
 import { allExternalIdsFor, dayToIcuEvents, ICU_TYPE, workoutDescription, EXTERNAL_PREFIX } from '../engine/icuExport';
@@ -7,13 +7,15 @@ import { computeLoadFocus, type LoadFocus } from '../engine/loadFocus';
 import { analyzePerformance, type PerformanceAnalysis } from '../engine/performance';
 import { computeStaleness, type Staleness } from '../engine/staleness';
 import { isHardSession } from '../engine/trends';
+import { heatAdaptation, type HeatAdaptation } from '../engine/heat';
 import { estimateVo2, type Vo2Estimate } from '../engine/vo2max';
 import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
 import { trainingStatus, type TrainingStatus } from '../engine/status';
 import { buildMacroPlan, macroWeekFor, withAppRaces, withAwayWeeks } from '../engine/periodization';
+import { deviceName, flatten, mergeDocs, readDoc, restamp, syncRaces, trim, unflatten, writeDoc, type SyncState } from './cloudSync';
 import { planWeek } from '../engine/planner';
-import { applySports, bikeHoursFor } from '../engine/multisport';
+import { applySecondSessions, applySports, bikeHoursFor } from '../engine/multisport';
 import { targetsLabel, type ExportTargets } from '../engine/targets';
 import { assessReadiness } from '../engine/readiness';
 import { computeTrends } from '../engine/trends';
@@ -23,6 +25,7 @@ import type {
   CalendarEvent,
   CheckIn,
   DayConfig,
+  PlannedRace,
   PlannedWorkout,
   PowerCurve,
   GoalSettings,
@@ -39,7 +42,7 @@ import type {
 import { useAuth, type PublicUser, type ServerInfo } from './auth';
 import { DEFAULT_PREFS, DEFAULT_STRENGTH, defaultGoal } from './defaults';
 import { demoData, demoJournal, demoSnapshots } from './demo';
-import { fetchAll, pushEvents, testConnection, type Connection } from './intervals';
+import { fetchAll, fetchEvents, pushEvents, testConnection, type Connection } from './intervals';
 import { load, save } from './storage';
 import { mergeActivities, stravaActivities, stravaStatus, type StravaStatus } from './strava';
 
@@ -62,6 +65,8 @@ export interface AppSettings {
   usualDays: Partial<Record<number, DayConfig>>;
   startOffset: 0 | 1; // plan from today (0) or tomorrow (1)
   teamUrl: string; // team-dashboard data/team.json
+  cloudSync?: boolean; // sync settings across devices via intervals.icu (default on)
+  shareJournalWithCoach?: boolean; // let coaches see your journal in their Team tab (default off)
 }
 
 export interface DataState {
@@ -88,12 +93,19 @@ function keysFor(ns: string) {
     feedback: `${p}feedback.v1`,
     history: `${p}history.v1`,
     journal: `${p}journal.v1`,
+    stamps: `${p}syncstamps.v1`,
     scheduled: `${p}scheduled.v1`,
   };
 }
 type Keys = ReturnType<typeof keysFor>;
 
 /** What follows a signed-in user across devices (stored on the server with their account). */
+export interface CloudStatus {
+  state: 'off' | 'syncing' | 'on' | 'error';
+  at: string | null;
+  error: string | null;
+}
+
 interface RemoteState {
   settings?: Partial<AppSettings>;
   weeks?: Record<ISODate, WeekConfig>;
@@ -110,12 +122,12 @@ export interface Scheduled {
   level: number;
 }
 
-function initialSettings(K: Keys, remote: RemoteState | null, signedIn: boolean, guest: boolean): AppSettings {
+function initialSettings(K: Keys, remote: RemoteState | null, _signedIn: boolean, _guest: boolean): AppSettings {
   const t = today();
   const stored = remote?.settings ?? load<Partial<AppSettings> | null>(K.settings, null);
   const base: AppSettings = {
     connection: { mode: 'auto', apiKey: '', athleteId: '', appPassword: '', useStrava: false },
-    demo: !signedIn,
+    demo: false, // no example data: pages ask you to connect intervals.icu
     goal: defaultGoal(t),
     strength: DEFAULT_STRENGTH,
     prefs: DEFAULT_PREFS,
@@ -125,7 +137,7 @@ function initialSettings(K: Keys, remote: RemoteState | null, signedIn: boolean,
     startOffset: 1,
     teamUrl: '',
   };
-  if (!stored) return guest ? { ...base, demo: true } : base;
+  if (!stored) return base;
   const merged: AppSettings = {
     ...base,
     ...stored,
@@ -134,7 +146,7 @@ function initialSettings(K: Keys, remote: RemoteState | null, signedIn: boolean,
     strength: { ...base.strength, ...stored.strength },
     prefs: { ...base.prefs, ...stored.prefs },
   };
-  return guest ? { ...merged, demo: true } : merged;
+  return { ...merged, demo: false };
 }
 
 const EMPTY_DATA: DataState = { profile: null, activities: [], wellness: [], events: [], source: 'none', lastSync: null, info: null };
@@ -171,6 +183,9 @@ interface Ctx {
   compliance: ComplianceDay[];
   power: PowerProfile | null;
   powerCurves: PowerCurve[];
+  heat: HeatAdaptation;
+  cloud: CloudStatus;
+  cloudSyncNow: () => Promise<void>;
   /** intervals.icu calendar + races added in the app */
   events: CalendarEvent[];
   /** what the app planned for past days (for planned-vs-done) */
@@ -320,7 +335,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const res = await fetchAll(conn, oldest, asOf, addDays(asOf, 365));
       let activities = res.activities;
       let info: string | null = null;
-      const limited = activities.filter((a) => a.limited).length;
       if (settings.connection.useStrava && strava?.connected) {
         try {
           const after = Math.floor(new Date(`${oldest}T00:00:00`).getTime() / 1000);
@@ -331,9 +345,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch (e) {
           info = `Strava fetch failed: ${(e as Error).message}`;
         }
-      } else if (limited > 0) {
-        info = `${limited} activit${limited === 1 ? 'y' : 'ies'} came from Strava and are hidden by intervals.icu's API. Connect Garmin directly in intervals.icu, or enable Strava here.`;
-      }
+      } // Strava-hidden activities are explained by the missing-data notes on each page
       const next: DataState = { ...res, activities, source: 'intervals', lastSync: new Date().toISOString(), info };
       setStored(next);
       save(K.data, next);
@@ -355,6 +367,122 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (age > 3 * 3600_000 && (settings.connection.apiKey || server?.serverIcuKey || account)) sync().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [server, settings.demo]);
+
+  // ---------- Sync across devices via a hidden note on intervals.icu (no server needed) ----------
+  const hasKey = Boolean(settings.connection.apiKey || server?.serverIcuKey);
+  const cloudOn = !account && !guest && !settings.demo && hasKey && settings.cloudSync !== false;
+  const [cloud, setCloud] = useState<CloudStatus>({ state: 'off', at: null, error: null });
+  const syncState: SyncState = useMemo(
+    () => ({ settings: settings as unknown as Record<string, unknown>, weeks, checkins, feedback, history, journal: journalState, scheduled }),
+    [settings, weeks, checkins, feedback, history, journalState, scheduled],
+  );
+  const flat = useMemo(() => flatten(syncState), [syncState]);
+  const prevFlat = useRef<Record<string, string> | null>(null);
+  const stampsRef = useRef<Record<string, number>>(load(K.stamps, {}));
+  const applying = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const busyRef = useRef(false);
+  const flatRef = useRef(flat);
+  flatRef.current = flat;
+
+  // Stamp every item that changed on this device
+  useEffect(() => {
+    if (prevFlat.current && !applying.current) {
+      stampsRef.current = restamp(prevFlat.current, flat, stampsRef.current);
+      save(K.stamps, stampsRef.current);
+    }
+    applying.current = false;
+    prevFlat.current = flat;
+  }, [flat, K]);
+
+  const applyItems = useCallback((items: Record<string, string>) => {
+    const st = unflatten(items);
+    applying.current = true;
+    const rs = (st.settings ?? {}) as Partial<AppSettings>;
+    setSettings((cur) => ({
+      ...cur,
+      ...rs,
+      goal: { ...cur.goal, ...(rs.goal ?? {}) },
+      strength: { ...cur.strength, ...(rs.strength ?? {}) },
+      prefs: { ...cur.prefs, ...(rs.prefs ?? {}) },
+      connection: cur.connection,
+      demo: cur.demo,
+      cloudSync: cur.cloudSync,
+    }));
+    setWeeks((st.weeks ?? {}) as Record<ISODate, WeekConfig>);
+    setCheckins((st.checkins ?? {}) as Record<ISODate, CheckIn>);
+    setFeedbackState((st.feedback ?? {}) as Record<string, Feedback>);
+    setHistory((st.history ?? {}) as Record<ISODate, PlanSnapshot>);
+    setJournalState((st.journal ?? {}) as Journal);
+    setScheduled((st.scheduled ?? {}) as Record<ISODate, Scheduled>);
+  }, []);
+
+  /** Pull the note, merge it with this device, and save back if this device had newer changes. */
+  const cloudSyncNow = useCallback(
+    async (opts: { write?: boolean } = {}) => {
+      if (!cloudOn || busyRef.current) return;
+      busyRef.current = true;
+      setCloud((c) => ({ ...c, state: 'syncing', error: null }));
+      try {
+        const conn = connection();
+        const doc = await readDoc(conn);
+        const local = { items: flatRef.current, stamps: stampsRef.current };
+        const merged = doc ? mergeDocs(local, { items: flatten(doc.data), stamps: doc.stamps ?? {} }) : { items: local.items, stamps: local.stamps, changedLocal: false, changedRemote: true };
+        stampsRef.current = merged.stamps;
+        save(K.stamps, merged.stamps);
+        if (merged.changedLocal) applyItems(merged.items);
+        if (merged.changedRemote && (opts.write ?? true)) {
+          // Anything never stamped (e.g. settings set before syncing existed) counts as changed now,
+          // so a brand-new device takes these values instead of its own defaults
+          const now = Date.now();
+          for (const k of Object.keys(merged.items)) if (!merged.stamps[k]) merged.stamps[k] = now;
+          stampsRef.current = merged.stamps;
+          save(K.stamps, merged.stamps);
+          const t = trim(merged.items, merged.stamps, asOf);
+          await writeDoc(conn, { app: 'trainingapp', v: 1, savedAt: Date.now(), device: deviceName(), stamps: t.stamps, data: unflatten(t.items) });
+        }
+        // Races you added → real A/B/C races on the intervals.icu calendar
+        const races = ((unflatten(merged.items).settings?.goal as GoalSettings | undefined)?.races ?? []) as PlannedRace[];
+        await syncRaces(conn, races, await fetchEvents(conn, asOf, addDays(asOf, 730))).catch(() => 0);
+        setCloud({ state: 'on', at: new Date().toISOString(), error: null });
+      } catch (e) {
+        setCloud((c) => ({ ...c, state: 'error', error: (e as Error).message }));
+      } finally {
+        busyRef.current = false;
+      }
+    },
+    [cloudOn, connection, applyItems, asOf, K],
+  );
+
+  // Load when sync turns on (app opened with a key), and whenever the app comes back into view
+  useEffect(() => {
+    if (!cloudOn) {
+      setCloud({ state: 'off', at: null, error: null });
+      return;
+    }
+    cloudSyncNow();
+    const onVis = () => document.visibilityState === 'visible' && cloudSyncNow();
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudOn]);
+
+  // After a data sync (button or automatic), check for settings changes from other devices too
+  useEffect(() => {
+    if (cloudOn && stored.lastSync) cloudSyncNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stored.lastSync]);
+
+  // Save a few seconds after you change something
+  useEffect(() => {
+    if (!cloudOn || applying.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => cloudSyncNow(), 3000);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flat]);
 
   const startDate = addDays(asOf, settings.startOffset);
 
@@ -392,7 +520,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       for (const d of range(w.startDate, 7)) {
         const c = w.days[d];
         // Keep recurring things (blocked days, group rides, time caps); not one-off pins/races
-        if (c && (c.status === 'off' || c.status === 'group' || c.maxMinutes != null || c.noLift))
+        if (c && (c.status === 'off' || c.status === 'group' || c.maxMinutes != null || c.noLift || c.second))
           usual[dow(d)] = c.status === 'pinned' || c.status === 'race' ? { status: 'available', maxMinutes: c.maxMinutes } : c;
       }
       setSettings((s) => ({ ...s, usualHours: w.hours, usualDays: usual }));
@@ -427,7 +555,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [profile, ftp],
   );
 
-  const events = useMemo(() => withAwayWeeks(withAppRaces(data.events, settings.goal.races), settings.goal.awayWeeks), [data.events, settings.goal.races, settings.goal.awayWeeks]);
+  const events = useMemo(() => withAwayWeeks(withAppRaces(data.events, settings.goal.races), settings.goal.awayWeeks, settings.goal.offRanges), [data.events, settings.goal.races, settings.goal.awayWeeks, settings.goal.offRanges]);
   const macro = useMemo(() => buildMacroPlan(settings.goal, events, asOf), [settings.goal, events, asOf]);
   const readiness = useMemo(
     () => assessReadiness(data.wellness, asOf, { checkIn: effectiveCheckIn, model: settings.goal.model, effects }),
@@ -441,6 +569,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [data.activities, asOf, macro, startDate, settings.goal.eventType]);
   const performance = useMemo(() => analyzePerformance(data.activities, data.wellness, effProfile, asOf), [data.activities, data.wellness, effProfile, asOf]);
   const impacts = useMemo(() => tagImpacts(journal, data.wellness, asOf), [journal, data.wellness, asOf]);
+  const heat = useMemo(() => heatAdaptation(data.activities, performance.model, asOf), [data.activities, performance.model, asOf]);
   const status = useMemo(() => trainingStatus(data.wellness, readiness, asOf, performance.improvement), [data.wellness, readiness, asOf, performance.improvement]);
   const vo2History = useMemo(
     () => data.wellness.filter((w) => w.vo2max && diffDays(asOf, w.date) >= 0 && diffDays(asOf, w.date) <= 180).map((w) => ({ date: w.date, vo2: w.vo2max as number })),
@@ -463,7 +592,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     for (const a of data.activities) byDay.set(a.date, (byDay.get(a.date) ?? 0) + (a.tss ?? 0));
     const daily = Array.from({ length: 42 }, (_, i) => addDays(asOf, -i)).map((d) => ({ date: d, load: byDay.get(d) ?? 0 }));
     const tsb = data.wellness.filter((w) => w.ctl != null && w.atl != null).map((w) => ({ date: w.date, tsb: (w.ctl as number) - (w.atl as number) }));
-    const rides = data.activities.filter((a) => a.isRide && diffDays(asOf, a.date) >= 0).sort((a, b) => b.date.localeCompare(a.date));
+    const rides = data.activities.filter((a) => !a.isStrength && diffDays(asOf, a.date) >= 0).sort((a, b) => b.date.localeCompare(a.date)); // any endurance session
     const hard = rides.find(isHardSession);
     const eftpF = performance.improvement.factors.find((f) => f.label.startsWith('eFTP'));
     const ctlF = performance.improvement.factors.find((f) => f.label.startsWith('Fitness'));
@@ -490,9 +619,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const power = useMemo(() => powerProfile(effProfile, powerCurves), [effProfile, powerCurves]);
   const limiter = power ? ({ sprint: 'anaerobic', anaerobic: 'anaerobic', vo2: 'vo2max', threshold: 'threshold' } as const)[power.limiter] : null;
   const sport = settings.prefs.sport ?? 'cycling';
-  const basePlan = useMemo(
-    () =>
-      planWeek({
+  const planInput = useMemo(
+    () => ({
         startDate,
         asOf,
         week: sport === 'run_bike' || sport === 'triathlon' ? { ...week, hours: bikeHoursFor(sport, week.hours) } : week,
@@ -522,10 +650,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }),
     [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, events, progression, loadFocus, carryOver, limiter],
   );
-  const plan = useMemo(
+  const basePlan = useMemo(() => planWeek(planInput), [planInput]);
+  // What the plan itself would recommend on days that have a workout from your coach / calendar
+  const autoPlan = useMemo(() => {
+    if (!basePlan.days.some((d) => d.ride?.fixed === 'calendar')) return null;
+    return planWeek({ ...planInput, events: planInput.events.filter((e) => !(e.category === 'WORKOUT' && !(e.externalId ?? '').startsWith(`${EXTERNAL_PREFIX}-`))) });
+  }, [basePlan, planInput]);
+  const sportsPlan = useMemo(
     () =>
       applySports({
-        plan: basePlan,
+        plan: autoPlan
+          ? { ...basePlan, days: basePlan.days.map((d) => (d.ride?.fixed === 'calendar' ? { ...d, recommended: autoPlan.days.find((x) => x.date === d.date)?.ride ?? null } : d)) }
+          : basePlan,
         sport,
         hours: week.hours,
         macroWeek: basePlan.macroWeek,
@@ -535,8 +671,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         weightKg: effProfile?.weightKg ?? null,
         minRestDays: settings.prefs.minRestDays,
       }),
-    [basePlan, sport, week.hours, readiness, data.activities, asOf, effProfile, settings.prefs.minRestDays],
+    [basePlan, autoPlan, sport, week.hours, readiness, data.activities, asOf, effProfile, settings.prefs.minRestDays],
   );
+  const plan = useMemo(() => applySecondSessions(sportsPlan, (d) => week.days[d], effProfile?.weightKg ?? null, readiness), [sportsPlan, week.days, effProfile, readiness]);
 
   // Remember what was planned (today onward) so compliance works even without pushing to intervals.icu
   useEffect(() => {
@@ -545,8 +682,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const n: Record<ISODate, PlanSnapshot> = {};
       for (const [d, v] of Object.entries(h)) if (diffDays(asOf, d) <= 60 && d < asOf) n[d] = v;
       for (const d of plan.days) {
-        if (d.date < asOf || !d.ride) continue;
-        n[d.date] = { date: d.date, name: d.ride.name, templateId: d.ride.templateId, durationMin: d.ride.durationMin, tss: d.ride.tss, key: d.ride.key };
+        const ws = [d.ride, ...(d.extras ?? [])].filter(Boolean) as PlannedWorkout[];
+        if (d.date < asOf || !ws.length) continue;
+        n[d.date] = { date: d.date, name: ws.map((w) => w.name).join(' + '), templateId: ws[0].templateId, durationMin: ws.reduce((a, w) => a + w.durationMin, 0), tss: ws.reduce((a, w) => a + w.tss, 0), key: ws.some((w) => w.key) };
       }
       return JSON.stringify(n) === JSON.stringify(h) ? h : n;
     });
@@ -577,13 +715,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (p: WeekPlan) => {
       const conn = connection();
       const prof = effProfile!;
-      const events = p.days.flatMap((d) => dayToIcuEvents(d, prof, settings.prefs.targetMode));
-      const keep = new Set(events.map((e) => e.external_id));
+      const outgoing = p.days.flatMap((d) => dayToIcuEvents(d, prof, settings.prefs.targetMode));
+      const keep = new Set(outgoing.map((e) => e.external_id));
+      // A coach workout you replaced stays on your calendar as a note (not a second workout for your Garmin)
+      const replaced = p.days
+        .filter((d) => d.ride?.fixed !== 'calendar')
+        .flatMap((d) => events.filter((e) => e.date === d.date && e.category === 'WORKOUT' && (e.externalId ?? '').startsWith('tacoach-')));
+      for (const e of replaced)
+        outgoing.push({
+          category: 'NOTE',
+          start_date_local: `${e.date}T00:00:00`,
+          type: e.type ?? 'Ride',
+          name: `Coach’s plan: ${e.name} (you changed this day)`,
+          description: e.description ?? '',
+          moving_time: e.plannedSec ?? undefined,
+          external_id: e.externalId as string,
+        });
       const stale = p.days.flatMap((d) => allExternalIdsFor(d.date)).filter((id) => !keep.has(id));
-      const n = await pushEvents(conn, events, stale);
+      const n = await pushEvents(conn, outgoing, stale);
       return `Sent ${n} workout${n === 1 ? '' : 's'} to your intervals.icu calendar. They sync on to Garmin Connect if "Upload planned workouts" is on in intervals.icu.`;
     },
-    [connection, effProfile, settings.prefs.targetMode],
+    [connection, effProfile, settings.prefs.targetMode, events],
   );
 
   const value: Ctx = {
@@ -630,6 +782,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     pushWorkout,
     getConnection: connection,
     exportDefaults,
+    heat,
+    cloud,
+    cloudSyncNow: () => cloudSyncNow(),
     events,
     snapshots,
     account,

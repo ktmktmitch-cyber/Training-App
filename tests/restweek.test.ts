@@ -77,3 +77,20 @@ describe('weeks off next to scheduled recovery', () => {
     expect(maxRun).toBeLessThanOrEqual(4); // 3:1 pattern stretched by at most one week
   });
 });
+
+import { awayWeeksFromRanges } from '../src/engine/periodization';
+
+describe('days off by date range', () => {
+  it('blocks exactly those days; a mostly-off week counts as an away week', () => {
+    // Thu → following Wed: 4 days in the first week, 3 in the next
+    const r = { id: 'x', start: '2026-12-17', end: '2026-12-23' };
+    expect(awayWeeksFromRanges([r])).toEqual(['2026-12-14']);
+    const ev = withAwayWeeks([], [], [r]);
+    const wk = { startDate: '2026-12-21', hours: 8, days: {} };
+    expect(effectiveDayConfig('2026-12-23', wk, ev, null).status).toBe('off');
+    expect(effectiveDayConfig('2026-12-24', wk, ev, null).status).toBe('available'); // back on the 24th
+    const plan = buildMacroPlan({ ...defaultGoal(asOf), offRanges: [r] }, [], asOf);
+    expect(macroWeekFor(plan, '2026-12-14')?.userAway).toBe(true);
+    expect(macroWeekFor(plan, '2026-12-21')?.userAway).toBeFalsy();
+  });
+});

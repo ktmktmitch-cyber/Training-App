@@ -9,6 +9,8 @@ import { JournalCard } from '../components/JournalCard';
 import { BestEffortsCard, EfficiencyCard, FtpCard, ImprovementCard, StalenessCard, Vo2Card } from '../components/performance';
 import { Seg, useToast } from '../components/ui';
 import { TAG_BY_KEY } from '../engine/journal';
+import { HeatCard } from '../components/HeatCard';
+import { DataGapNotes } from '../components/EmptyStates';
 import { useApp } from '../lib/store';
 
 function rolling(vals: (number | null)[], n: number): (number | null)[] {
@@ -99,6 +101,7 @@ export function TrendsPage() {
       <p className="small ink2" style={{ marginTop: -8 }}>
         <b>{app.status.label}:</b> {app.status.detail}
       </p>
+      <DataGapNotes />
       <Seg<Tab>
         value={tab}
         onChange={setTab}
@@ -111,6 +114,7 @@ export function TrendsPage() {
       />
       {tab === 'performance' && (
         <>
+          <HeatCard heat={app.heat} />
           <div className="grid-2">
             <FtpCard
               perf={app.performance}
@@ -238,7 +242,7 @@ export function TrendsPage() {
         </div>
         <div className="card">
           <div className="card-head">
-            <h2>Weekly riding hours</h2>
+            <h2>Weekly training hours</h2>
             <span className="small muted">last 12 weeks</span>
           </div>
           <BarChart
@@ -256,7 +260,15 @@ export function TrendsPage() {
                     <b className="num">{w.hours} h</b> · <span className="num">{w.tss} TSS</span>
                   </div>
                   <div className="muted">
-                    {w.rides} rides · {w.strength} lifts
+                    {[
+                      [w.rides, 'ride'],
+                      [w.runs ?? 0, 'run'],
+                      [w.swims ?? 0, 'swim'],
+                      [w.strength, 'lift'],
+                    ]
+                      .filter(([n]) => (n as number) > 0)
+                      .map(([n, l]) => `${n} ${l}${n === 1 ? '' : 's'}`)
+                      .join(' · ') || 'no sessions'}
                   </div>
                 </>
               );

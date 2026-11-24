@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './lib/auth';
 import { AppProvider, useApp } from './lib/store';
 import { LoginPage } from './pages/LoginPage';
 import { CalendarPage } from './pages/CalendarPage';
+import { RequireData } from './components/EmptyStates';
 import { GuidePage } from './pages/GuidePage';
 import { LibraryPage } from './pages/LibraryPage';
 import { SeasonPage } from './pages/SeasonPage';
@@ -36,11 +37,11 @@ function MorePage() {
 }
 
 const ROUTES = [
-  { id: 'week', label: 'Week', icon: 'week' as const, el: <WeekPage />, mobile: true },
-  { id: 'calendar', label: 'Calendar', icon: 'calendar' as const, el: <CalendarPage />, mobile: true },
+  { id: 'week', label: 'Week', icon: 'week' as const, el: <RequireData title="Your week" what="your training plan"><WeekPage /></RequireData>, mobile: true },
+  { id: 'calendar', label: 'Calendar', icon: 'calendar' as const, el: <RequireData title="Calendar" what="your calendar"><CalendarPage /></RequireData>, mobile: true },
   { id: 'season', label: 'Season', icon: 'season' as const, el: <SeasonPage />, mobile: false },
   { id: 'library', label: 'Library', icon: 'library' as const, el: <LibraryPage />, mobile: false },
-  { id: 'progress', label: 'Progress', icon: 'trends' as const, el: <TrendsPage />, mobile: true },
+  { id: 'progress', label: 'Progress', icon: 'trends' as const, el: <RequireData title="Progress" what="your progress"><TrendsPage /></RequireData>, mobile: true },
   { id: 'team', label: 'Team', icon: 'team' as const, el: <TeamPage />, mobile: true },
   { id: 'strength', label: 'Strength', icon: 'strength' as const, el: <StrengthPage />, mobile: false },
   { id: 'settings', label: 'Settings', icon: 'settings' as const, el: <SettingsPage />, mobile: false },
@@ -92,9 +93,9 @@ function Shell() {
               </a>
             )}
             {app.guest && <GuestLogin />}
-            {app.settings.demo ? (
+            {app.data.source !== 'intervals' && !app.syncing ? (
               <a className="chip" href="#/settings" style={{ textDecoration: 'none' }}>
-                Demo data
+                Connect intervals.icu
               </a>
             ) : (
               <button className="btn sm ghost" onClick={() => app.sync().catch(() => {})} disabled={app.syncing} title="Sync from intervals.icu">

@@ -35,7 +35,7 @@ export function RacesCard() {
   const [dur, setDur] = useState(120);
   const [editing, setEditing] = useState<string | null>(null);
 
-  const calendarRaces = app.data.events.filter((e) => e.category.startsWith('RACE_') && !isAppRace(e) && diffDays(e.date, asOf) >= 0);
+  const calendarRaces = app.data.events.filter((e) => e.category.startsWith('RACE_') && !isAppRace(e) && !(e.externalId ?? '').startsWith('trainingapp-race-') && diffDays(e.date, asOf) >= 0);
   const upcoming = races.filter((r) => diffDays(r.date, asOf) >= 0);
   const past = races.filter((r) => diffDays(r.date, asOf) < 0);
   const nextA = upcoming.find((r) => r.priority === 'A');
@@ -60,7 +60,7 @@ export function RacesCard() {
       <div className="stack" style={{ gap: 2 }}>
         <h2>Races</h2>
         <span className="small ink2">
-          Add races as far ahead as you like. {nextA ? `Your next A race (${nextA.name}, ${fmtShort(nextA.date)}) is the season goal: the plan peaks and tapers for it.` : 'Your first A race becomes the season goal: the plan builds, peaks and tapers for it.'}
+          Add races as far ahead as you like{app.cloud.state !== 'off' ? ' — they’re also put on your intervals.icu calendar' : ''}. {nextA ? `Your next A race (${nextA.name}, ${fmtShort(nextA.date)}) is the season goal: the plan peaks and tapers for it.` : 'Your first A race becomes the season goal: the plan builds, peaks and tapers for it.'}
         </span>
       </div>
 

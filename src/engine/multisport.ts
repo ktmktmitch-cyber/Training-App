@@ -12,7 +12,8 @@
 //    swims (CSS + aerobic/technique) on easier days — always keeping your rest days.
 import { diffDays, dow, fmtMinutes } from './dates';
 import { instantiate } from './planner';
-import type { Activity, ISODate, MacroWeek, Phase, PlannedDay, PlannedWorkout, Readiness, SportMode, WeekPlan } from './types';
+import type { Activity, ISODate, MacroWeek, Phase, PlannedDay, PlannedWorkout, Readiness, SecondSession, SportMode, WeekPlan } from './types';
+import { projectLoad, round } from './stats';
 import { getTemplate } from './workouts';
 
 export const SPORT_LABEL: Record<SportMode, string> = { cycling: 'Cycling', running: 'Running', run_bike: 'Run + bike', triathlon: 'Triathlon' };
@@ -128,11 +129,26 @@ export function applySports(inp: SportsInput): WeekPlan {
   }
   if (red) summary.push('Recovery markers are down: quality runs/swims are swapped for easy ones this week.');
 
-  // Re-total the week across sports
+  // Re-total the week across sports, and re-project fitness/fatigue/form with every session
   const all = days.flatMap((d) => [d.ride, ...(d.extras ?? [])].filter(Boolean) as PlannedWorkout[]);
   const totalMin = all.reduce((a, w) => a + w.durationMin, 0);
   const totalTss = all.reduce((a, w) => a + w.tss, 0);
-  return { ...inp.plan, days, totalMin, totalTss, summary, warnings };
+  let { projectedCtl, projectedTsb } = inp.plan;
+  const ctl0 = inp.readiness.ctl;
+  const atl0 = inp.readiness.atl;
+  if (ctl0 != null && atl0 != null) {
+    const daily = days.map((d) => [d.ride, ...(d.extras ?? [])].reduce((a, w) => a + (w?.tss ?? 0), 0));
+    const proj = projectLoad(ctl0, atl0, daily);
+    projectedCtl = round(proj.ctl[proj.ctl.length - 1], 1);
+    projectedTsb = round(proj.ctl[proj.ctl.length - 1] - proj.atl[proj.atl.length - 1], 1);
+    const i = summary.findIndex((x) => x.startsWith('Projected fitness'));
+    const line = `Projected fitness (CTL, all sports) ${round(ctl0)} → ${round(projectedCtl)} (${projectedCtl - ctl0 >= 0 ? '+' : ''}${round(projectedCtl - ctl0, 1)}); form at week end ${projectedTsb >= 0 ? '+' : ''}${round(projectedTsb)}.`;
+    if (i >= 0) summary[i] = line;
+    else summary.push(line);
+    const j = summary.findIndex((x) => /riding \(/.test(x));
+    if (j >= 0) summary[j] = `${fmtMinutes(totalMin)} training across sports · ~${totalTss} TSS.`;
+  }
+  return { ...inp.plan, days, totalMin, totalTss, summary, warnings, projectedCtl, projectedTsb };
 }
 
 function convertToRuns(days: PlannedDay[], inp: SportsInput, summary: string[]) {
@@ -338,3 +354,37 @@ function fmtDow(d: ISODate): string {
   return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dow(d)];
 }
 
+
+const SECOND: Record<SecondSession, { sport: 'swim' | 'run' | 'ride'; when: 'AM' | 'PM'; easy: string; steady: string; min: number }> = {
+  am_swim: { sport: 'swim', when: 'AM', easy: 'swim_technique', steady: 'swim_endurance', min: 35 },
+  pm_swim: { sport: 'swim', when: 'PM', easy: 'swim_technique', steady: 'swim_endurance', min: 35 },
+  am_run: { sport: 'run', when: 'AM', easy: 'run_recovery', steady: 'run_easy', min: 30 },
+  pm_run: { sport: 'run', when: 'PM', easy: 'run_recovery', steady: 'run_easy', min: 30 },
+  spin: { sport: 'ride', when: 'PM', easy: 'recovery', steady: 'recovery', min: 40 },
+};
+
+/**
+ * Second sessions you asked for in your availability (e.g. a morning swim). Kept easy when the day
+ * already has a hard session — the main session carries the training stimulus; steady aerobic
+ * otherwise. Not added on days off or race days, or when that sport is already on the day.
+ */
+export function applySecondSessions(plan: WeekPlan, cfg: (d: ISODate) => { second?: SecondSession | null; status?: string } | undefined, weightKg: number | null, readiness: Readiness): WeekPlan {
+  let changed = false;
+  const days = plan.days.map((d) => {
+    const c = cfg(d.date);
+    const want = c?.second;
+    if (!want || d.status === 'off' || d.status === 'race') return d;
+    const spec = SECOND[want];
+    const sessions = [d.ride, ...(d.extras ?? [])].filter(Boolean) as PlannedWorkout[];
+    if (sessions.some((w) => (w.sport ?? 'ride') === spec.sport && (spec.sport !== 'ride' || w !== d.ride))) return d;
+    const hardDay = sessions.some((w) => w.key || w.intensity === 'hard') || readiness.status === 'red';
+    const t = getTemplate(hardDay ? spec.easy : spec.steady);
+    const w = instantiate(t, spec.min, 0, weightKg, undefined, [hardDay ? 'Kept easy — the day’s main session is the hard one.' : 'Steady aerobic second session.'], { sport: t.sport ?? 'ride' });
+    w.name = `${spec.when} · ${w.name}`;
+    changed = true;
+    return { ...d, extras: [...(d.extras ?? []), w] };
+  });
+  if (!changed) return plan;
+  const all = days.flatMap((d) => [d.ride, ...(d.extras ?? [])].filter(Boolean) as PlannedWorkout[]);
+  return { ...plan, days, totalMin: all.reduce((a, w) => a + w.durationMin, 0), totalTss: all.reduce((a, w) => a + w.tss, 0) };
+}

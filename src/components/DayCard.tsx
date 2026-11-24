@@ -1,10 +1,10 @@
 import { Fragment, useState } from 'react';
 import { dowShort, fmtMinutes, fromISO } from '../engine/dates';
 import type { AthleteProfile, Block, GroupIntensity, PlannedDay, TargetMode } from '../engine/types';
-import { workoutAlternatives } from '../engine/planner';
+import { parseCoachId, workoutAlternatives } from '../engine/planner';
 import { DIFFICULTY_LABEL, type Difficulty, type Progression } from '../engine/progression';
 import { paceLabel, type Sport } from '../engine/runswim';
-import { ALL_WORKOUTS } from '../engine/workouts';
+import { ALL_WORKOUTS, WORKOUT_BY_ID } from '../engine/workouts';
 import { useApp } from '../lib/store';
 import { Skyline } from './charts';
 import { ExportBar } from './ExportBar';
@@ -152,6 +152,11 @@ export function DayCard(props: {
   const sportsAllowed: Sport[] = mode2 === 'cycling' ? ['ride'] : mode2 === 'running' ? ['run'] : mode2 === 'run_bike' ? ['ride', 'run'] : ['ride', 'run', 'swim'];
   const paceFor = (sp: Sport) => (sp === 'run' ? (app.settings.prefs.runPaceMps ?? profile?.runThresholdMps ?? null) : sp === 'swim' ? (app.settings.prefs.swimCssMps ?? profile?.swimCssMps ?? null) : null);
   const extras = day.extras ?? [];
+  // The coach's workout for this day, if the rider has replaced it (kept on their calendar as a note)
+  const coachEv = r?.fixed !== 'calendar' ? app.events.find((e) => e.date === day.date && (e.externalId ?? '').startsWith('tacoach-')) : undefined;
+  const coachTpl = coachEv ? parseCoachId(coachEv.externalId) : null;
+  const hasRec = r?.fixed === 'calendar' && day.recommended !== undefined;
+  const rec = hasRec ? day.recommended : null;
   const off = day.status === 'off';
   const title = r ? r.name : extras[0] ? extras[0].name : off ? 'Unavailable' : 'Rest day';
   const allMin = (r?.durationMin ?? 0) + extras.reduce((a, x) => a + x.durationMin, 0);
@@ -173,6 +178,7 @@ export function DayCard(props: {
             {day.strength && <span className="chip">🏋 {day.strength.title}</span>}
             {r?.fixed === 'group' && <span className="chip">Your group ride</span>}
             {r?.fixed === 'pinned' && <span className="chip">Your pick</span>}
+            {r?.fixed === 'calendar' && <span className="chip">{day.ride?.why[0]?.startsWith('From your coach') ? 'From your coach' : 'On your calendar'}</span>}
             {day.mobility && <span className="chip">Mobility {day.mobility.minutes}′</span>}
             {r && (r.sport ?? 'ride') !== 'ride' && <span className="chip">{SPORT_NAME[r.sport!]}</span>}
             {extras.map((x, i) => (
@@ -226,6 +232,31 @@ export function DayCard(props: {
                   <b>Fueling:</b> {r.fueling}
                 </div>
               )}
+            </div>
+          )}
+          {hasRec && (
+            <div className="callout row" style={{ alignItems: 'center' }}>
+              <span className="small">
+                <b>Plan’s recommendation</b> for this day: {rec ? `${rec.name} · ${fmtMinutes(rec.durationMin)} · ${rec.tss} TSS` : 'rest'}
+              </span>
+              <span className="spacer" />
+              {rec && WORKOUT_BY_ID[rec.templateId] && (
+                <button className="btn sm" onClick={() => props.onSwap(rec.templateId, rec.durationMin, rec.level)}>
+                  Use this instead
+                </button>
+              )}
+            </div>
+          )}
+          {coachEv && coachTpl && (
+            <div className="callout row" style={{ alignItems: 'center' }}>
+              <span className="small">
+                <b>Your coach planned:</b> {coachEv.name.replace(/^Coach’s plan: /, '').replace(/ \(you changed this day\)$/, '')}
+                {coachEv.plannedSec ? ` · ${fmtMinutes(Math.round(coachEv.plannedSec / 60))}` : ''}
+              </span>
+              <span className="spacer" />
+              <button className="btn sm" onClick={() => props.onSwap(coachTpl.templateId, coachEv.plannedSec ? Math.round(coachEv.plannedSec / 60) : 60, coachTpl.level ?? undefined)}>
+                Switch back to coach’s workout
+              </button>
             </div>
           )}
           {extras.map((x, i) => (

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { computeCompliance } from '../engine/compliance';
 import { addDays, diffDays, fmtMinutes, fromISO, mondayOf, range } from '../engine/dates';
 import { TAGS } from '../engine/journal';
-import { macroWeekFor, PHASE_LABELS } from '../engine/periodization';
+import { macroWeekFor, PHASE_LABELS, withAwayWeeks } from '../engine/periodization';
 import type { Activity, CalendarEvent, ISODate, PlannedDay } from '../engine/types';
 import { StepsTable } from '../components/DayCard';
 import { ExportBar } from '../components/ExportBar';
@@ -10,7 +10,10 @@ import { C_COLOR, C_ICON } from '../components/insights';
 import { MobilityBlock } from '../components/MobilityCard';
 import { useToast } from '../components/ui';
 import { fetchHistory } from '../lib/intervals';
+import { readDoc } from '../lib/cloudSync';
+import { countsForHours } from '../engine/trends';
 import { useApp } from '../lib/store';
+import { useTeam } from '../lib/team';
 
 type Sport = 'ride' | 'run' | 'swim' | 'strength' | 'other';
 
@@ -47,6 +50,12 @@ export function CalendarPage() {
   const [selected, setSelected] = useState<ISODate>(asOf);
   const [older, setOlder] = useState<{ activities: Activity[]; events: CalendarEvent[]; ranges: string[] }>({ activities: [], events: [], ranges: [] });
   const [loading, setLoading] = useState(false);
+  // Whose calendar: you (null) or a teammate
+  const team = useTeam();
+  const riders = (team.team?.riders ?? []).filter((r) => r.state === 'ok' && r.id !== app.data.profile?.id);
+  const [who, setWho] = useState<string | null>(null);
+  const rider = riders.find((r) => r.id === who) ?? null;
+  const [other, setOther] = useState<{ id: string; activities: Activity[]; events: CalendarEvent[]; plan: { restWeeks: string[]; awayWeeks: string[]; offRanges: { id: string; start: string; end: string; note?: string }[] } | null; limited: boolean; months: string[] } | null>(null);
 
   // The grid: Monday before the 1st → Sunday after the last day
   const first = mondayOf(month);
@@ -77,14 +86,56 @@ export function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month, needOlder]);
 
-  const activities = useMemo(() => [...data.activities, ...older.activities.filter((a) => !data.activities.some((x) => x.id === a.id))], [data.activities, older.activities]);
-  const events = useMemo(() => [...app.events, ...older.events.filter((e) => !app.events.some((x) => x.id === e.id))], [app.events, older.events]);
+  // A teammate's calendar: full history and calendar if they've shared it with you (coach access),
+  // otherwise their recent rides from the team data
+  useEffect(() => {
+    if (!who || !rider) return;
+    const fresh = !other || other.id !== who;
+    if (!fresh && (other!.limited || other!.months.includes(month))) return;
+    let gone = false;
+    setLoading(true);
+    const rc = { ...app.getConnection(), athleteId: who };
+    Promise.all([fetchHistory(rc, first, last), fresh ? readDoc(rc).catch(() => null) : Promise.resolve(undefined)])
+      .then(([h, doc]) => {
+        if (gone) return;
+        const g = (doc?.data.settings as { goal?: { restWeeks?: string[]; awayWeeks?: string[]; offRanges?: { id: string; start: string; end: string; note?: string }[] } } | undefined)?.goal;
+        setOther((o) => {
+          const base = o && o.id === who ? o : { id: who, activities: [], events: [], plan: null, limited: false, months: [] };
+          return {
+            ...base,
+            activities: [...base.activities, ...h.activities.filter((a) => !base.activities.some((x) => x.id === a.id))],
+            events: [...base.events, ...h.events.filter((e) => !base.events.some((x) => x.id === e.id))],
+            plan: doc !== undefined ? (g ? { restWeeks: g.restWeeks ?? [], awayWeeks: g.awayWeeks ?? [], offRanges: g.offRanges ?? [] } : null) : base.plan,
+            months: [...base.months, month],
+          };
+        });
+      })
+      .catch(() => {
+        if (gone) return;
+        const acts: Activity[] = rider.recent_rides.map((x, i) => ({ id: `t${i}`, date: x.date, startTime: x.start, name: x.name, type: x.type || 'Ride', isRide: /ride/i.test(x.type || 'Ride'), isStrength: /weight/i.test(x.type), movingSec: Math.round(x.hours * 3600), distanceM: x.miles != null ? x.miles * 1609.34 : null, tss: x.load, intensity: null, normalizedPower: x.np, avgHr: null, powerZoneSecs: null, hrZoneSecs: null, source: 'intervals' }));
+        setOther({ id: who, activities: acts, events: [], plan: null, limited: true, months: [] });
+      })
+      .finally(() => !gone && setLoading(false));
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [who, month, rider]);
+  const viewingOther = Boolean(who && other && other.id === who);
+
+  const myActivities = useMemo(() => [...data.activities, ...older.activities.filter((a) => !data.activities.some((x) => x.id === a.id))], [data.activities, older.activities]);
+  const myEvents = useMemo(() => [...app.events, ...older.events.filter((e) => !app.events.some((x) => x.id === e.id))], [app.events, older.events]);
+  const activities = viewingOther ? other!.activities : who ? [] : myActivities;
+  const events = useMemo(
+    () => (viewingOther ? withAwayWeeks(other!.events, other!.plan?.awayWeeks ?? [], other!.plan?.offRanges ?? []) : who ? [] : myEvents),
+    [viewingOther, other, who, myEvents],
+  );
   const compliance = useMemo(() => {
     const past = days.filter((d) => diffDays(d, asOf) <= 0);
-    return Object.fromEntries(computeCompliance(past, asOf, events, activities, app.snapshots).map((c) => [c.date, c]));
+    return Object.fromEntries(computeCompliance(past, asOf, events, activities, who ? {} : app.snapshots).map((c) => [c.date, c]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [first, last, asOf, events, activities, app.snapshots]);
-  const planByDay = useMemo(() => Object.fromEntries(plan.days.map((d) => [d.date, d])) as Record<ISODate, PlannedDay>, [plan.days]);
+  }, [first, last, asOf, events, activities, app.snapshots, who]);
+  const planByDay = useMemo(() => (who ? {} : Object.fromEntries(plan.days.map((d) => [d.date, d]))) as Record<ISODate, PlannedDay>, [plan.days, who]);
   const actsByDay = useMemo(() => {
     const m: Record<ISODate, Activity[]> = {};
     for (const a of activities) (m[a.date] ??= []).push(a);
@@ -107,6 +158,16 @@ export function CalendarPage() {
     <>
       <div className="row">
         <h1 style={{ margin: 0 }}>Calendar</h1>
+        {riders.length > 0 && (
+          <select className="select" style={{ maxWidth: 190 }} value={who ?? ''} onChange={(e) => { setWho(e.target.value || null); setSelected(asOf); }} aria-label="Whose calendar">
+            <option value="">My calendar</option>
+            {[...riders].sort((a, b) => a.rider.localeCompare(b.rider)).map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.rider}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="spacer" />
         <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
           <button className="btn sm ghost" onClick={() => setMonth(addMonths(month, -1))} aria-label="Previous month">
@@ -122,6 +183,11 @@ export function CalendarPage() {
         </div>
       </div>
       {loading && <div className="callout">Loading {label} from intervals.icu…</div>}
+      {viewingOther && other!.limited && (
+        <div className="callout">
+          Showing {rider?.rider}’s recent rides from the team data. Their full history, planned workouts and time off show here once they add you as a coach on intervals.icu.
+        </div>
+      )}
 
       <div className="card cal">
         <div className="cal-grid cal-head" aria-hidden>
@@ -131,15 +197,16 @@ export function CalendarPage() {
           <div className="cal-wk">Week</div>
         </div>
         {weeks.map((wk) => {
-          const mw = macroWeekFor(macro, wk[0]);
+          const mw = who ? null : macroWeekFor(macro, wk[0]);
+          const otherOff = viewingOther && other!.plan ? (other!.plan.awayWeeks.includes(wk[0]) ? 'Away' : other!.plan.restWeeks.includes(wk[0]) ? 'Rest week' : null) : null;
           const done = wk.flatMap((d) => actsByDay[d] ?? []);
-          const hrs = done.reduce((a, x) => a + x.movingSec, 0) / 3600;
+          const hrs = done.filter(countsForHours).reduce((a, x) => a + x.movingSec, 0) / 3600;
           const tss = done.reduce((a, x) => a + (x.tss ?? 0), 0);
           const planned = wk.flatMap((d) => [planByDay[d]?.ride, ...(planByDay[d]?.extras ?? [])]).filter(Boolean);
           const plannedMin = planned.reduce((a, r) => a + (r?.durationMin ?? 0), 0);
           const future = diffDays(wk[0], asOf) > 0;
           return (
-            <div key={wk[0]} className={`cal-grid cal-row ${mw && (mw.weekType === 'recovery' || mw.userRest) ? 'rest-week' : ''}`}>
+            <div key={wk[0]} className={`cal-grid cal-row ${(mw && (mw.weekType === 'recovery' || mw.userRest)) || otherOff ? 'rest-week' : ''}`}>
               {wk.map((d) => {
                 const inMonth = d.slice(0, 7) === month.slice(0, 7);
                 const acts = actsByDay[d] ?? [];
@@ -149,7 +216,7 @@ export function CalendarPage() {
                 const race = evs.find((e) => e.category.startsWith('RACE_'));
                 const plannedEv = !p && diffDays(d, asOf) > 0 ? evs.find((e) => e.category === 'WORKOUT') : undefined;
                 const off = evs.find((e) => ['SICK', 'INJURED', 'HOLIDAY'].includes(e.category));
-                const tags = app.journal[d] ?? [];
+                const tags = who ? [] : (app.journal[d] ?? []);
                 return (
                   <button
                     key={d}
@@ -196,6 +263,7 @@ export function CalendarPage() {
                 );
               })}
               <div className="cal-wk">
+                {otherOff && <span className="tiny">{otherOff}</span>}
                 {mw && (
                   <span className="tiny">
                     {mw.userRest ? 'Rest (yours)' : mw.weekType === 'recovery' ? 'Recovery' : mw.weekType === 'hit_block' ? 'HIT block' : PHASE_LABELS[mw.phase]}
@@ -223,20 +291,21 @@ export function CalendarPage() {
         acts={actsByDay[selected] ?? []}
         evs={evByDay[selected] ?? []}
         planned={planByDay[selected]}
-        snapshot={app.snapshots[selected]}
+        snapshot={who ? undefined : app.snapshots[selected]}
         onToast={showToast}
+        self={!who}
       />
       {toast}
     </>
   );
 }
 
-function DayDetail({ date, acts, evs, planned, snapshot, onToast }: { date: ISODate; acts: Activity[]; evs: CalendarEvent[]; planned?: PlannedDay; snapshot?: { name: string; durationMin: number; tss: number }; onToast: (m: string) => void }) {
+function DayDetail({ date, acts, evs, planned, snapshot, onToast, self = true }: { date: ISODate; acts: Activity[]; evs: CalendarEvent[]; planned?: PlannedDay; snapshot?: { name: string; durationMin: number; tss: number }; onToast: (m: string) => void; self?: boolean }) {
   const app = useApp();
-  const w = app.data.wellness.find((x) => x.date === date);
-  const tags = app.journal[date] ?? [];
+  const w = self ? app.data.wellness.find((x) => x.date === date) : undefined;
+  const tags = self ? (app.journal[date] ?? []) : [];
   const past = diffDays(date, app.asOf) < 0;
-  const plannedEvs = evs.filter((e) => e.category === 'WORKOUT' && !(e.externalId ?? '').startsWith('trainingapp'));
+  const plannedEvs = evs.filter((e) => e.category === 'WORKOUT' && (!self || !(e.externalId ?? '').startsWith('trainingapp')));
   const notes = evs.filter((e) => e.category === 'NOTE' || e.category.startsWith('RACE_') || ['SICK', 'INJURED', 'HOLIDAY'].includes(e.category));
   const nothing = !acts.length && !planned?.ride && !planned?.strength && !planned?.mobility && !plannedEvs.length && !notes.length && !snapshot;
   return (
@@ -269,7 +338,7 @@ function DayDetail({ date, acts, evs, planned, snapshot, onToast }: { date: ISOD
               <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
                 <b>{a.name}</b>
                 <span className="tiny muted">{a.type}</span>
-                {a.source === 'intervals' && (
+                {a.source === 'intervals' && !a.id.startsWith('t') && (
                   <a className="tiny" href={`https://intervals.icu/activities/${a.id}`} target="_blank" rel="noreferrer">
                     Open in intervals.icu
                   </a>

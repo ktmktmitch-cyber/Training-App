@@ -236,7 +236,7 @@ export function planStrength(args: StrengthPlanArgs): { sessions: Record<ISODate
   const cands: Cand[] = [];
   days.forEach((d, i) => {
     const cfg = dayCfg(d.date);
-    if (cfg.status === 'off' || cfg.noLift) return;
+    if (cfg.status === 'off' || cfg.noLift || cfg.second) return; // a second session replaces lifting that day
     if (d.ride?.category === 'race') return;
     const daysToA = aRaceDates.map((r) => diffDays(r, d.date)).filter((x) => x >= 0);
     const nearestA = daysToA.length ? Math.min(...daysToA) : Infinity;

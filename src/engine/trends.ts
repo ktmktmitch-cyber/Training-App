@@ -4,8 +4,22 @@ import { addDays, diffDays, fmtMinutes, mondayOf } from './dates';
 import { ewma, mean, round, sd } from './stats';
 import type { Activity, ISODate, Trends, Wellness } from './types';
 
+/** Hours count rides, runs and swims only; lifting, 'Workout', yoga etc. count for training load (TSS) but not hours. */
+export function countsForHours(a: Activity): boolean {
+  if (a.isStrength) return false;
+  if (a.isRide) return true;
+  return /run|swim/i.test(a.type);
+}
+
+/** A hard session in any endurance sport (rides by power zones; runs/swims by intensity or HR zones). Strength doesn't count. */
 export function isHardSession(a: Activity): boolean {
-  if (!a.isRide) return false;
+  if (a.isStrength) return false;
+  if (!a.isRide) {
+    if (a.intensity != null && a.intensity >= 0.88 && a.movingSec >= 1200) return true;
+    const hr = a.hrZoneSecs;
+    if (hr && hr.slice(3).reduce((x, y) => x + y, 0) >= 900) return true;
+    return false;
+  }
   const z = a.powerZoneSecs;
   const highSecs = z ? z.slice(4).reduce((x, y) => x + y, 0) : 0; // Z5+
   const thrSecs = z ? (z[3] ?? 0) : 0; // Z4
@@ -44,12 +58,14 @@ export function computeTrends(activities: Activity[], wellness: Wellness[], asOf
     const ws = addDays(thisMonday, -7 * (11 - i));
     const we = addDays(ws, 6);
     const acts = past.filter((a) => diffDays(a.date, ws) >= 0 && diffDays(we, a.date) >= 0);
-    const endurance = acts.filter((a) => !a.isStrength);
+    const endurance = acts.filter(countsForHours);
     return {
       weekStart: ws,
       hours: round(endurance.reduce((x, a) => x + a.movingSec, 0) / 3600, 1),
       tss: Math.round(acts.reduce((x, a) => x + (a.tss ?? 0), 0)),
       rides: acts.filter((a) => a.isRide).length,
+      runs: acts.filter((a) => /run/i.test(a.type) && !a.isRide).length,
+      swims: acts.filter((a) => /swim/i.test(a.type)).length,
       strength: acts.filter((a) => a.isStrength).length,
     };
   });
@@ -57,13 +73,15 @@ export function computeTrends(activities: Activity[], wellness: Wellness[], asOf
   const last = (days: number) => past.filter((a) => diffDays(asOf, a.date) < days);
   const last28 = last(28);
   const rides28 = last28.filter((a) => a.isRide);
+  // Intensity distribution counts every endurance session (rides, runs, swims …)
+  const endurance28 = last28.filter((a) => !a.isStrength);
 
   // Intensity distribution (3-zone model: below LT1 / LT1-LT2 / above LT2)
   let pz = [0, 0, 0];
   let hz = [0, 0, 0];
   let powerSecs = 0;
   let rideSecs = 0;
-  for (const r of rides28) {
+  for (const r of endurance28) {
     rideSecs += r.movingSec;
     if (r.powerZoneSecs && r.powerZoneSecs.some((x) => x > 0)) {
       const z = r.powerZoneSecs;
@@ -102,11 +120,11 @@ export function computeTrends(activities: Activity[], wellness: Wellness[], asOf
             : 'mixed';
     notes.push(`Last 4 weeks (${distribution28.source}): ${lowPct}% easy / ${midPct}% moderate / ${highPct}% hard — ${shape}.`);
     if (distribution28.low < 0.6)
-      notes.push('Less than 60% of riding is easy. Most high performers keep 70-90% of time below LT1 — easy days may be drifting too hard ("grey zone").');
+      notes.push('Less than 60% of training is easy. Most high performers keep 70-90% of time below LT1 — easy days may be drifting too hard ("grey zone").');
   }
 
   const longestRideMin28 = Math.round(Math.max(0, ...rides28.map((r) => r.movingSec / 60)));
-  const avgWeeklyHours4 = round(last28.filter((a) => !a.isStrength).reduce((x, a) => x + a.movingSec, 0) / 3600 / 4, 1);
+  const avgWeeklyHours4 = round(last28.filter(countsForHours).reduce((x, a) => x + a.movingSec, 0) / 3600 / 4, 1);
   const avgWeeklyTss4 = Math.round(last28.reduce((x, a) => x + (a.tss ?? 0), 0) / 4);
   const hard = past.filter(isHardSession).sort((a, b) => b.date.localeCompare(a.date));
   const hardSessions14 = hard.filter((a) => diffDays(asOf, a.date) < 14).length;

@@ -313,6 +313,11 @@ export async function fetchAll(conn: Connection, oldest: ISODate, newest: ISODat
   };
 }
 
+/** Calendar events in a date range. */
+export async function fetchEvents(conn: Connection, oldest: ISODate, newest: ISODate): Promise<CalendarEvent[]> {
+  return ((await call<RawEvent[]>(conn, `/athlete/${aid(conn)}/events?oldest=${oldest}&newest=${newest}`)) ?? []).map(normalizeEvent);
+}
+
 /** Activities and calendar events for a date range (for browsing older months in the calendar). */
 export async function fetchHistory(conn: Connection, oldest: ISODate, newest: ISODate) {
   const [activitiesRaw, eventsRaw] = await Promise.all([

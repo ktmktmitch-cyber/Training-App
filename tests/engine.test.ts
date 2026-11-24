@@ -332,3 +332,23 @@ describe('workouts already on the intervals.icu calendar', () => {
     expect(evs.some((e) => e.start_date_local.startsWith(day) && e.type === 'Ride')).toBe(false);
   });
 });
+
+import { parseCoachId, workoutAlternatives } from '../src/engine/planner';
+import { coachExternalId } from '../src/lib/coach';
+
+describe('coach workouts in the rider’s plan', () => {
+  it('rebuilds the library workout with the rider’s own numbers and allows swaps', () => {
+    const inp = baseInput();
+    const day = addDays(inp.startDate, 2);
+    const ext = coachExternalId(day, 'threshold', 3);
+    expect(parseCoachId(ext)).toEqual({ templateId: 'threshold', level: 3 });
+    expect(parseCoachId('tacoach-2026-11-25-nope-L1-abc')).toBeNull();
+    const plan = planWeek({ ...inp, events: [{ id: '9', date: day, category: 'WORKOUT', type: 'Ride', name: 'Threshold 4×8', plannedSec: 4500, plannedTss: 80, externalId: ext, description: 'Coach: openers for Sat\n\n...' }] });
+    const d = plan.days.find((x) => x.date === day)!;
+    expect(d.ride?.templateId).toBe('threshold');
+    expect(d.ride?.blocks.length).toBeGreaterThan(0);
+    expect(d.ride?.fixed).toBe('calendar');
+    expect(d.ride?.why.join(' ')).toMatch(/openers for Sat/);
+    expect(workoutAlternatives(d.ride!, inp.progression, 72).length).toBeGreaterThan(0);
+  });
+});

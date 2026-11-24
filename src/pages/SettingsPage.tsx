@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { PlannerPrefs, TargetMode } from '../engine/types';
 import { SportCard } from '../components/SportCard';
+import { CloudSyncCard } from '../components/CloudSyncCard';
+import { UsualWeekCard } from '../components/UsualWeekCard';
 import { Field, Seg, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { useApp } from '../lib/store';
@@ -70,6 +72,8 @@ export function SettingsPage() {
     <>
       <h1>Settings</h1>
       <SportCard />
+      <CloudSyncCard />
+      <UsualWeekCard onToast={showToast} />
 
       {app.account && (
         <div className="card stack">
@@ -127,8 +131,8 @@ export function SettingsPage() {
 
       <div className="card stack-lg">
         <div className="card-head" style={{ marginBottom: 0 }}>
-          <h2>intervals.icu</h2>
-          <span className="chip">{data.source === 'intervals' ? `Synced ${data.lastSync ? new Date(data.lastSync).toLocaleString() : ''}` : settings.demo ? 'Using demo data' : 'Not synced'}</span>
+          <h2 id="connect">intervals.icu</h2>
+          <span className="chip">{data.source === 'intervals' ? `Synced ${data.lastSync ? new Date(data.lastSync).toLocaleString() : ''}` : 'Not connected'}</span>
         </div>
         <p className="small ink2">
           intervals.icu is the hub: it receives activities and wellness (HRV, resting HR, sleep) from Garmin, and sends planned workouts back to your Garmin calendar. Find your API key and athlete ID in intervals.icu → Settings → Developer Settings.
@@ -172,10 +176,6 @@ export function SettingsPage() {
           <button className="btn primary" onClick={doSync} disabled={app.syncing}>
             {app.syncing ? 'Syncing…' : 'Sync now'}
           </button>
-          <label className="check small" style={{ marginLeft: 'auto' }}>
-            <input type="checkbox" checked={settings.demo} onChange={(e) => app.updateSettings((s) => ({ ...s, demo: e.target.checked }))} />
-            <span>Use demo data</span>
-          </label>
         </div>
         {app.syncError && <div className="callout bad">{app.syncError}</div>}
         {data.source === 'intervals' && (

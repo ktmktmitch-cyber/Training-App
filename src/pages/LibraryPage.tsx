@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, fmtLong, fmtMinutes } from '../engine/dates';
 import { instantiate, levelForTarget } from '../engine/planner';
 import { DIFFICULTY_LABEL, PROG_LABEL, progressionCapable, TEMPLATE_ZONE, type Difficulty } from '../engine/progression';
@@ -9,6 +9,8 @@ import { formatPace, type Sport } from '../engine/runswim';
 import { Skyline } from '../components/charts';
 import { StepsTable } from '../components/DayCard';
 import { ExportBar } from '../components/ExportBar';
+import { TeamSend } from '../components/TeamSend';
+import { setDragData, WeekDropStrip, type DragWorkout } from '../components/WeekDropStrip';
 import { DifficultyChip } from '../components/insights';
 import { CATEGORY_LABEL, IntensityChip, Seg, useToast } from '../components/ui';
 import { useApp } from '../lib/store';
@@ -29,6 +31,8 @@ export function LibraryPage() {
   const [tag, setTag] = useState<string>('all');
   const [maxMin, setMaxMin] = useState(0);
   const [sel, setSel] = useState<string | null>(null);
+  const [armed, setArmed] = useState<DragWorkout | null>(null);
+  const [toast, showToast] = useToast();
   const detailRef = useRef<HTMLDivElement>(null);
 
   const list = useMemo(
@@ -62,7 +66,9 @@ export function LibraryPage() {
         Pick any session, set the level and duration, then add it to your plan on any day or send it straight to intervals.icu / Garmin / Zwift.
       </p>
 
-      <div ref={detailRef}>{sel && WORKOUT_BY_ID[sel] && <WorkoutDetail key={sel} t={WORKOUT_BY_ID[sel]} onClose={() => setSel(null)} />}</div>
+      <WeekDropStrip armed={sel ? armed : null} onPlaced={showToast} />
+      {toast}
+      <div ref={detailRef}>{sel && WORKOUT_BY_ID[sel] && <WorkoutDetail key={sel} t={WORKOUT_BY_ID[sel]} onClose={() => { setSel(null); setArmed(null); }} onSettings={setArmed} />}</div>
 
       <div className="card stack">
         <Seg<Sport>
@@ -107,7 +113,14 @@ export function LibraryPage() {
         {list.map((t) => {
           const p = previews[t.id];
           return (
-            <button key={t.id} className={`lib-card ${sel === t.id ? 'on' : ''}`} onClick={() => open(t.id)}>
+            <button
+              key={t.id}
+              className={`lib-card ${sel === t.id ? 'on' : ''}`}
+              onClick={() => open(t.id)}
+              draggable
+              onDragStart={(e) => setDragData(e, { id: t.id, durationMin: previewDuration(t), level: Math.floor((t.levels - 1) / 2) })}
+              title="Click to open · drag onto a day above to add it to your plan"
+            >
               <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
                 <b>{t.name}</b>
                 <span className="tiny muted" style={{ whiteSpace: 'nowrap' }}>
@@ -128,7 +141,7 @@ export function LibraryPage() {
   );
 }
 
-function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void }) {
+function WorkoutDetail({ t, onClose, onSettings }: { t: WorkoutTemplate; onClose: () => void; onSettings: (w: DragWorkout) => void }) {
   const app = useApp();
   const [toast, showToast] = useToast();
   const zone = TEMPLATE_ZONE[t.id];
@@ -139,6 +152,7 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
   const [date, setDate] = useState(addDays(app.asOf, 1));
   const w = useMemo(() => instantiate(t, duration, level, app.profile?.weightKg ?? null, app.progression, []), [t, duration, level, app.profile, app.progression]);
   const scheduledHere = app.scheduled[date];
+  useEffect(() => onSettings({ id: t.id, durationMin: duration, level }), [t.id, duration, level, onSettings]);
   // Targets: preview and export the workout against any FTP / threshold HR (default: power, your eFTP)
   const [tMode, setTMode] = useState<ExportMode>('power');
   const [ftpIn, setFtpIn] = useState(String(app.exportDefaults.ftp));
@@ -164,6 +178,9 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
             {pl != null && zone && <span className="chip">Your {PROG_LABEL[zone]} level {pl.toFixed(1)}</span>}
           </div>
         </div>
+        <span className="chip drag-handle" draggable onDragStart={(e) => setDragData(e, { id: t.id, durationMin: duration, level })} title="Drag onto a day in the strip above">
+          ⠿ Drag to a day
+        </span>
         <button className="btn sm ghost" onClick={onClose} aria-label="Close">
           ✕
         </button>
@@ -277,6 +294,7 @@ function WorkoutDetail({ t, onClose }: { t: WorkoutTemplate; onClose: () => void
         </button>
       </div>
       <ExportBar workout={w} date={date} onDone={showToast} defaults={tSport === 'ride' ? libTargets : undefined} />
+      <TeamSend t={t} durationMin={duration} level={level} />
       <p className="tiny muted">
         <b>Garmin:</b> “Send to intervals.icu” lands on your Garmin calendar automatically if Garmin upload is on in intervals.icu. The .FIT file can also be copied to <code>Garmin/NewFiles</code> on your Edge or watch over USB. Zwift uses .zwo; most other indoor apps import .MRC.
       </p>

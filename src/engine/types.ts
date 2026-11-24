@@ -151,6 +151,7 @@ export interface GoalSettings {
   useCalendarRaces: boolean; // read RACE_A/B/C from intervals.icu
   restWeeks?: ISODate[]; // Mondays of weeks you chose to make rest weeks
   awayWeeks?: ISODate[]; // Mondays of weeks you can't train at all (travel, vacation)
+  offRanges?: { id: string; start: ISODate; end: ISODate; note?: string }[]; // exact days off (e.g. back mid-week)
   races?: PlannedRace[]; // races you added in the app
 }
 
@@ -196,9 +197,13 @@ export interface DayConfig {
   pinned?: { workoutId: string; durationMin: number; level?: number };
   race?: { name: string; durationMin: number; priority: 'A' | 'B' | 'C' };
   /** a workout already on your intervals.icu calendar (from a coach, TrainerRoad, etc.) */
-  scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null };
+  scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null; templateId?: string | null; level?: number | null; externalId?: string | null };
   noLift?: boolean;
+  /** an extra session on this day (e.g. a morning swim); 'none' also means no lifting */
+  second?: SecondSession | null;
 }
+
+export type SecondSession = 'am_swim' | 'pm_swim' | 'am_run' | 'pm_run' | 'spin';
 
 export interface WeekConfig {
   startDate: ISODate; // first day of the 7-day window
@@ -313,6 +318,8 @@ export interface PlannedDay {
   mobility?: MobilitySession | null;
   /** run / swim sessions (and brick runs) alongside or instead of the ride */
   extras?: PlannedWorkout[];
+  /** on days with a coach / calendar workout: what the plan itself would have recommended */
+  recommended?: PlannedWorkout | null;
   notes: string[];
   status: DayStatus;
 }
@@ -403,7 +410,7 @@ export interface WeeklyLoad {
   weekStart: ISODate;
   hours: number;
   tss: number;
-  rides: number;
+  rides: number; runs?: number; swims?: number;
   strength: number;
 }
 
