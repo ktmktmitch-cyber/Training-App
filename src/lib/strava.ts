@@ -25,7 +25,7 @@ interface RawStrava {
   suffer_score?: number;
 }
 
-const RIDE = new Set(['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide', 'EBikeRide', 'EMountainBikeRide', 'Velomobile']);
+import { isRideType } from './intervals';
 
 function withPw(pw?: string): HeadersInit {
   return pw ? { 'x-app-password': pw } : {};
@@ -67,7 +67,7 @@ export function normalizeStrava(a: RawStrava, profile: AthleteProfile | null): A
     startTime: a.start_date_local,
     name: a.name,
     type,
-    isRide: RIDE.has(type),
+    isRide: isRideType(type),
     isStrength: type === 'WeightTraining',
     movingSec: a.moving_time,
     tss,

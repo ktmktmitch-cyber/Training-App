@@ -205,6 +205,11 @@ export function TeamPage() {
           <div className="stack" style={{ gap: 2 }}>
             <h2>Leaderboard</h2>
             <span className="small ink2">Tap a column to sort, a name for that rider’s details. ★ = best of the past year.</span>
+            {ok.some((r) => r.liveAdded) && (
+              <span className="tiny muted">
+                Includes {ok.filter((r) => r.liveAdded).map((r) => `${r.rider}’s ${r.liveAdded === 1 ? 'latest activity' : `${r.liveAdded} latest activities`}`).join(', ')} — synced since the team update ({team!.updated}), read live from intervals.icu.
+              </span>
+            )}
           </div>
         </div>
         <div className="table-wrap">

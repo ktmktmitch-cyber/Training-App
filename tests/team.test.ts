@@ -140,3 +140,20 @@ describe('rider details errors', () => {
     expect(isNotShared(new Error('Network error reaching intervals.icu (Failed to fetch).'))).toBe(false);
   });
 });
+
+import { withLiveActivities } from '../src/engine/team';
+describe('live activities on the leaderboard', () => {
+  it('adds a mountain bike ride synced after the team update, once', () => {
+    const rider = { id: 'i1', rider: 'Kyle', state: 'ok', hidden_strava: 0, hours_this_week: 0, hours_last_week: 7.7, hours_month: 27.6, hours_ytd: 365, miles_ytd: 5000, fitness: 50, form: 0, eftp_watts: 290, eftp_wkg: 3.6, prs: [], weeks: [{ week: '2026-11-23', hours: 0, miles: 0, rides: 0 }], trend: [], recent_rides: [{ start: '2026-11-21T13:27:12', date: '2026-11-21', name: 'Road', type: 'Ride', hours: 2.4, miles: 37, avg_watts: 130, np: 157, load: 48 }], p5s: null, p1m: null, p3m: null, p12m: null, p20m: null, p5s_pr: false, p1m_pr: false, p3m_pr: false, p12m_pr: false, p20m_pr: false } as any;
+    const team = { updated: 'Tue 3:04 PM', today: '2026-11-24', riders: [rider], feed: [{ rider: 'Kyle', start: '2026-11-24T10:04:52', date: '2026-11-24', name: 'Sauna', type: 'Workout', hours: 0.3, miles: null, load: 12 }] } as any;
+    const act = (id: string, start: string, type: string, isRide: boolean) => ({ id, date: start.slice(0, 10), startTime: start, name: id, type, isRide, isStrength: false, movingSec: 2846, distanceM: 9068, tss: 28, intensity: null, normalizedPower: null, avgHr: 131, powerZoneSecs: null, hrZoneSecs: null, source: 'intervals' }) as any;
+    const out = withLiveActivities(team, { i1: [act('mtb', '2026-11-24T15:01:17', 'MountainBikeRide', true), act('old', '2026-11-21T13:27:12', 'Ride', true), act('sauna2', '2026-11-24T16:00:00', 'Workout', false)] });
+    const k = out.riders[0];
+    expect(k.hours_this_week).toBe(0.8);
+    expect(k.hours_month).toBe(28.4);
+    expect(k.liveAdded).toBe(1);
+    expect(k.recent_rides[0].name).toBe('mtb');
+    expect(out.feed[0].name).toBe('mtb');
+    expect(withLiveActivities(team, {})).toBe(team);
+  });
+});

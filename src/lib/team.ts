@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addDays, diffDays } from '../engine/dates';
-import { parseTeamData, riderFromData, riderMetrics, type DeepRider, type RiderMetrics, type TeamData, type TeamFeedItem } from '../engine/team';
+import { parseTeamData, riderFromData, riderMetrics, withLiveActivities, type DeepRider, type RiderMetrics, type TeamData, type TeamFeedItem } from '../engine/team';
 import { demoData, type DemoOpts } from './demo';
 import { fetchAthleteData, fetchEvents } from './intervals';
 import { readDoc } from './cloudSync';
@@ -106,8 +106,18 @@ export function useTeam(): TeamState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demo, url]);
 
-  const current = demoSet?.team ?? team;
   const currentDeep = demoSet?.deep ?? deep;
+  // Add rides synced since the last team update: yours from your live data, coached riders' from their loaded details
+  const myId = app.data.profile?.id ?? null;
+  const myActs = app.data.activities;
+  const current = useMemo(() => {
+    const base = demoSet?.team ?? team;
+    if (!base || demoSet) return base;
+    const live: Record<string, import('../engine/types').Activity[]> = {};
+    for (const [id, d] of Object.entries(deep)) if (!d.error && d.activities.length) live[id] = d.activities;
+    if (myId && myActs.length) live[myId] = myActs;
+    return withLiveActivities(base, live);
+  }, [demoSet, team, deep, myId, myActs]);
   // Detailed per-rider health data (HRV, readiness) is for the coach only
   const deepAvailable = !demo && app.canPush && (!app.account || app.account.role === 'coach');
 

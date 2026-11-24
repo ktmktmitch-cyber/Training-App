@@ -88,6 +88,8 @@ export interface TeamRider {
   p3m_pr: boolean;
   p12m_pr: boolean;
   p20m_pr: boolean;
+  /** activities added from live intervals.icu data since the last team update */
+  liveAdded?: number;
 }
 export interface TeamData {
   updated: string;
@@ -405,4 +407,59 @@ export function riderFromData(
     p12m_pr: false,
     p20m_pr: false,
   };
+}
+
+/**
+ * The team data is refreshed by a scheduled job (every hour or so), so a ride you just finished
+ * isn't in it yet. Add activities from live intervals.icu data (yours, and coached riders' when
+ * their details are loaded) that are newer than anything the team data has for that rider.
+ */
+export function withLiveActivities(team: TeamData, live: Record<string, Activity[]>): TeamData {
+  const monday = mondayOf(team.today);
+  const lastMonday = addDays(monday, -7);
+  const month = team.today.slice(0, 7);
+  const year = team.today.slice(0, 4);
+  const feed = [...team.feed];
+  let changed = false;
+  const riders = team.riders.map((r) => {
+    const acts = live[r.id];
+    if (!acts?.length || r.state !== 'ok') return r;
+    const known = [...r.recent_rides.map((x) => x.start), ...team.feed.filter((f) => f.rider === r.rider).map((f) => f.start)].sort();
+    const cutoff = known.length ? known[known.length - 1] : `${team.today}T23:59:59`;
+    const fresh = acts.filter((a) => !a.limited && countsForHours(a) && (a.startTime ?? `${a.date}T00:00:00`) > cutoff && a.date <= addDays(team.today, 1));
+    if (!fresh.length) return r;
+    changed = true;
+    const n = { ...r, weeks: r.weeks.map((w) => ({ ...w })), recent_rides: [...r.recent_rides], liveAdded: fresh.length };
+    for (const a of fresh) {
+      const h = a.movingSec / 3600;
+      const mi = a.distanceM ? a.distanceM / 1609.344 : 0;
+      if (a.date >= monday) n.hours_this_week += h;
+      else if (a.date >= lastMonday) n.hours_last_week += h;
+      if (a.date.slice(0, 7) === month) n.hours_month += h;
+      if (a.date.slice(0, 4) === year) {
+        n.hours_ytd += h;
+        n.miles_ytd += mi;
+      }
+      const wk = n.weeks.find((w) => w.week === mondayOf(a.date));
+      if (wk) {
+        wk.hours += h;
+        wk.miles += mi;
+        wk.rides += 1;
+      }
+      const start = a.startTime ?? `${a.date}T00:00:00`;
+      const item = { start, date: a.date, name: a.name, type: a.type, hours: Math.round(h * 10) / 10, miles: mi ? Math.round(mi * 10) / 10 : null, load: a.tss };
+      if (a.isRide) n.recent_rides.unshift({ ...item, avg_watts: null, np: a.normalizedPower });
+      feed.push({ rider: r.rider, ...item });
+    }
+    const r1 = (x: number) => Math.round(x * 10) / 10;
+    n.hours_this_week = r1(n.hours_this_week);
+    n.hours_last_week = r1(n.hours_last_week);
+    n.hours_month = r1(n.hours_month);
+    n.hours_ytd = r1(n.hours_ytd);
+    n.miles_ytd = Math.round(n.miles_ytd);
+    return n;
+  });
+  if (!changed) return team;
+  feed.sort((a, b) => b.start.localeCompare(a.start));
+  return { ...team, riders, feed };
 }
