@@ -5,14 +5,17 @@ import { FORM_ZONES } from '../engine/status';
 import { POWER_KEY_LABEL, POWER_KEYS, type DeepRider, type RiderMetrics, type TeamRider } from '../engine/team';
 import { BarChart, LineChart } from '../components/charts';
 import { LoadFocusCard } from '../components/insights';
-import { StatusIcon, useToast } from '../components/ui';
+import { Seg, StatusIcon, useToast } from '../components/ui';
 import type { ReadinessStatus } from '../engine/types';
 import { useApp } from '../lib/store';
 import { useTeam } from '../lib/team';
 import { CoachSchedule } from '../components/CoachSchedule';
 import { RiderSettingsPanel } from '../components/RiderSettingsPanel';
 import { CoachReadinessTable } from '../components/CoachReadinessTable';
-import { FormBadge, TeamFormCard } from '../components/FormBadge';
+import { FormBadge, StateBadge, TeamFormCard } from '../components/FormBadge';
+import { riderTrainingState } from '../engine/teamState';
+import { analyzePerformance } from '../engine/performance';
+import { today } from '../engine/dates';
 
 const dash = '—';
 const h1 = (v: number | null | undefined) => (v == null ? dash : v.toFixed(1));
@@ -246,8 +249,9 @@ export function TeamPage() {
               <tr>
                 <th className="sticky-col" />
                 <th className="group" colSpan={5}>
-                  Volume (rides + runs)
+                  Volume (rides, runs, swims)
                 </th>
+                <th className="group state-group">Progress</th>
                 <th className="group" colSpan={5}>
                   Fitness
                 </th>
@@ -265,6 +269,9 @@ export function TeamPage() {
                 {th('hours_month', 'Month', 'num')}
                 {th('hours_ytd', 'Year h', 'num')}
                 {th('miles_ytd', 'Year mi', 'num')}
+                <th className="l state-col" title="Training state from fitness, form and power PRs">
+                  Training state
+                </th>
                 {th('fitness', 'Fitness', 'num')}
                 {th('form', 'Form', 'num')}
                 {th('eftp_watts', 'eFTP', 'num')}
@@ -291,6 +298,9 @@ export function TeamPage() {
                     <td className="num">{h1(r.hours_month)}</td>
                     <td className="num">{h1(r.hours_ytd)}</td>
                     <td className="num">{n0(r.miles_ytd)}</td>
+                    <td className="state-col">
+                      <StateBadge state={riderTrainingState(r, app.asOf)} />
+                    </td>
                     <td className="num">{r.fitness ?? dash}</td>
                     <td className="form-cell">
                       <FormBadge tsb={r.form} />
@@ -323,7 +333,7 @@ export function TeamPage() {
               {blocked.map((r) => (
                 <tr key={r.id}>
                   <td className="sticky-col">{r.rider}</td>
-                  <td colSpan={17} className="muted">
+                  <td colSpan={18} className="muted">
                     Waiting for coach access on intervals.icu
                   </td>
                 </tr>
@@ -425,7 +435,7 @@ export function TeamPage() {
                           )}
                       </div>
                       <span className="hrow-val tiny">
-                        {why ?? (f!.estimated ? 'estimate' : f!.shortage ? `${FOCUS_LABEL[f!.shortage]} short` : total ? 'balanced' : 'no data')}
+                        {why ?? (f!.estimated ? (d?.error ? 'estimate · not shared' : 'estimate') : f!.shortage ? `${FOCUS_LABEL[f!.shortage]} short` : total ? 'balanced' : 'no data')}
                       </span>
                     </div>
                   );
@@ -541,6 +551,17 @@ export function TeamPage() {
 
 function RiderDetail({ r, m, riders, onPick, coach, deep }: { r: TeamRider; m: RiderMetrics | undefined; riders: TeamRider[]; onPick: (id: string) => void; coach?: boolean; deep?: DeepRider }) {
   const trend = r.trend;
+  const [tab, setTab] = useState<'performance' | 'load' | 'recovery'>('performance');
+  const state = riderTrainingState(r, today());
+  const perf = useMemo(() => (coach && deep && !deep.error && deep.activities.length ? analyzePerformance(deep.activities, deep.wellness, deep.profile, today()) : null), [coach, deep]);
+  const weight = r.eftp_watts && r.eftp_wkg ? r.eftp_watts / r.eftp_wkg : null;
+  const bests: [string, number | null, boolean | undefined][] = [
+    ['5 s', r.p5s, r.p5s_pr],
+    ['1 min', r.p1m, r.p1m_pr],
+    ['3 min', r.p3m, r.p3m_pr],
+    ['12 min', r.p12m, r.p12m_pr],
+    ['20 min', r.p20m, r.p20m_pr],
+  ];
   return (
     <div className="card stack-lg hero">
       {coach && !m?.readiness && (
@@ -586,6 +607,102 @@ function RiderDetail({ r, m, riders, onPick, coach, deep }: { r: TeamRider; m: R
           <span>VO2max est. (ml/kg/min)</span>
         </div>
       </div>
+      <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+        <StateBadge state={state} />
+        <span className="small ink2">{state.why}</span>
+      </div>
+      <Seg<'performance' | 'load' | 'recovery'>
+        value={tab}
+        onChange={setTab}
+        ariaLabel="Rider section"
+        options={[
+          { value: 'performance', label: 'Performance & FTP' },
+          { value: 'load', label: 'Training load' },
+          ...(coach ? [{ value: 'recovery' as const, label: 'Recovery & journal' }] : []),
+        ]}
+      />
+      {tab === 'performance' && (
+        <>
+          <div className="grid-2">
+            <div className="card" style={{ boxShadow: 'none' }}>
+              <div className="card-head">
+                <h3>Power bests · 8 weeks</h3>
+                <span className="tiny muted">★ = best of the past year</span>
+              </div>
+              <div className="table-wrap">
+                <table className="steps">
+                  <thead>
+                    <tr>
+                      <th>Duration</th>
+                      <th className="num">Watts</th>
+                      <th className="num">W/kg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bests.map(([d, w, pr]) => (
+                      <tr key={d}>
+                        <td>{d}</td>
+                        <td className="num">
+                          {w ?? dash}
+                          {pr ? <span className="good-ink"> ★</span> : null}
+                        </td>
+                        <td className="num">{w && weight ? (w / weight).toFixed(2) : dash}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="tiny muted" style={{ marginTop: 6 }}>
+                eFTP {r.eftp_watts ? `${r.eftp_watts} W` : dash}{r.eftp_wkg ? ` · ${r.eftp_wkg.toFixed(2)} W/kg` : ''}.
+                {perf?.ftp.estimate ? ` Estimated FTP from their rides: ${perf.ftp.estimate} W (${perf.ftp.confidence} confidence).` : ''}
+                {perf ? ` ${perf.improvement.summary}` : ''}
+              </p>
+            </div>
+            {m && (
+          <div className="card" style={{ boxShadow: 'none' }}>
+            <div className="card-head">
+              <h3>VO2max estimate</h3>
+              {m.vo2.category && <span className="chip">{m.vo2.category}</span>}
+            </div>
+            <div className="grid-3">
+              <div className="metric">
+                <div className="label">Estimate</div>
+                <div className="value num">{m.vo2.value?.toFixed(1) ?? dash}</div>
+                <div className="sub">ml/kg/min</div>
+              </div>
+              <div className="metric">
+                <div className="label">From power</div>
+                <div className="value num">{m.vo2.power?.toFixed(1) ?? dash}</div>
+                <div className="sub">{m.vo2.p5 ? `5-min ≈ ${m.vo2.p5} W` : 'no power data'}</div>
+              </div>
+              <div className="metric">
+                <div className="label">Garmin</div>
+                <div className="value num">{m.vo2.garmin ?? dash}</div>
+                <div className="sub">{m.vo2.weightKg ? `${m.vo2.weightKg} kg` : ''}</div>
+              </div>
+            </div>
+            <p className="tiny muted" style={{ marginTop: 8 }}>
+              {m.vo2.method || 'Needs power data (3- and 12-min bests) and weight.'}
+            </p>
+              </div>
+            )}
+          </div>
+          {r.prs.length > 0 && (
+            <div>
+              <h3 style={{ marginBottom: 6 }}>Recent PRs</h3>
+              <ul className="why">
+                {r.prs.map((x, i) => (
+                  <li key={i}>
+                    <b>{x.duration}</b> {x.watts} W{x.wkg ? ` (${x.wkg} W/kg)` : ''} · {x.ride ?? ''} · {x.date ? fmtShort(x.date) : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+      {tab === 'load' && (
+        <>
       <div className="grid-2">
         <div>
           <h3 style={{ marginBottom: 6 }}>Hours by week</h3>
@@ -627,8 +744,7 @@ function RiderDetail({ r, m, riders, onPick, coach, deep }: { r: TeamRider; m: R
           )}
         </div>
       </div>
-      {m && (
-        <div className="grid-2">
+          {m && (
           <div className="card" style={{ boxShadow: 'none' }}>
             <div className="card-head">
               <h3>Staleness risk</h3>
@@ -668,49 +784,7 @@ function RiderDetail({ r, m, riders, onPick, coach, deep }: { r: TeamRider; m: R
               </ul>
             )}
           </div>
-          <div className="card" style={{ boxShadow: 'none' }}>
-            <div className="card-head">
-              <h3>VO2max estimate</h3>
-              {m.vo2.category && <span className="chip">{m.vo2.category}</span>}
-            </div>
-            <div className="grid-3">
-              <div className="metric">
-                <div className="label">Estimate</div>
-                <div className="value num">{m.vo2.value?.toFixed(1) ?? dash}</div>
-                <div className="sub">ml/kg/min</div>
-              </div>
-              <div className="metric">
-                <div className="label">From power</div>
-                <div className="value num">{m.vo2.power?.toFixed(1) ?? dash}</div>
-                <div className="sub">{m.vo2.p5 ? `5-min ≈ ${m.vo2.p5} W` : 'no power data'}</div>
-              </div>
-              <div className="metric">
-                <div className="label">Garmin</div>
-                <div className="value num">{m.vo2.garmin ?? dash}</div>
-                <div className="sub">{m.vo2.weightKg ? `${m.vo2.weightKg} kg` : ''}</div>
-              </div>
-            </div>
-            <p className="tiny muted" style={{ marginTop: 8 }}>
-              {m.vo2.method || 'Needs power data (3- and 12-min bests) and weight.'}
-            </p>
-            {m.readiness && m.readiness.status !== 'unknown' && (
-              <div className="stack" style={{ marginTop: 10 }}>
-                <h3>Readiness today</h3>
-                <div className="row small">
-                  <span className="status-pill">
-                    <StatusIcon status={m.readiness.status} />
-                    {m.readiness.score}
-                  </span>
-                  <span className="ink2">{m.readiness.summary}</span>
-                </div>
-                <div className="tiny muted">
-                  HRV 7-day {m.readiness.hrv.avg7 ?? dash} ms (normal {m.readiness.hrv.low ?? dash}–{m.readiness.hrv.high ?? dash}) · resting HR {m.readiness.rhr.avg7 ?? dash} bpm · {m.status ? `status ${m.status.label}` : ''}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+          )}
       {m?.loadFocus && <LoadFocusCard focus={m.loadFocus} />}
       <div>
         <h3 style={{ marginBottom: 6 }}>Latest rides and runs</h3>
@@ -752,8 +826,34 @@ function RiderDetail({ r, m, riders, onPick, coach, deep }: { r: TeamRider; m: R
           </table>
         </div>
       </div>
+        </>
+      )}
+      {tab === 'recovery' && coach && (
+        <>
+          {m && (
+            <div className="card" style={{ boxShadow: 'none' }}>
+            {m.readiness && m.readiness.status !== 'unknown' && (
+              <div className="stack" style={{ marginTop: 10 }}>
+                <h3>Readiness today</h3>
+                <div className="row small">
+                  <span className="status-pill">
+                    <StatusIcon status={m.readiness.status} />
+                    {m.readiness.score}
+                  </span>
+                  <span className="ink2">{m.readiness.summary}</span>
+                </div>
+                <div className="tiny muted">
+                  HRV 7-day {m.readiness.hrv.avg7 ?? dash} ms (normal {m.readiness.hrv.low ?? dash}–{m.readiness.hrv.high ?? dash}) · resting HR {m.readiness.rhr.avg7 ?? dash} bpm · {m.status ? `status ${m.status.label}` : ''}
+                </div>
+              </div>
+            )}
+              {(!m.readiness || m.readiness.status === 'unknown') && <p className="small muted">No HRV/readiness data for this rider (needs coach access and wellness data in intervals.icu).</p>}
+            </div>
+          )}
+          <RiderSettingsPanel r={r} deep={deep} />
+        </>
+      )}
       <p className="tiny muted">Form zones: {FORM_ZONES.map((z) => z.label).join(' · ')}.</p>
-      {coach && <RiderSettingsPanel r={r} deep={deep} />}
     </div>
   );
 }

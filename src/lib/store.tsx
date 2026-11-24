@@ -622,9 +622,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const power = useMemo(() => powerProfile(effProfile, powerCurves), [effProfile, powerCurves]);
   const limiter = power ? ({ sprint: 'anaerobic', anaerobic: 'anaerobic', vo2: 'vo2max', threshold: 'threshold' } as const)[power.limiter] : null;
   const sport = settings.prefs.sport ?? 'cycling';
-  const basePlan = useMemo(
-    () =>
-      planWeek({
+  const planInput = useMemo(
+    () => ({
         startDate,
         asOf,
         week: sport === 'run_bike' || sport === 'triathlon' ? { ...week, hours: bikeHoursFor(sport, week.hours) } : week,
@@ -654,10 +653,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }),
     [startDate, asOf, week, settings.goal, macro, settings.prefs, settings.strength, readiness, trends, effProfile, ftp, events, progression, loadFocus, carryOver, limiter],
   );
+  const basePlan = useMemo(() => planWeek(planInput), [planInput]);
+  // What the plan itself would recommend on days that have a workout from your coach / calendar
+  const autoPlan = useMemo(() => {
+    if (!basePlan.days.some((d) => d.ride?.fixed === 'calendar')) return null;
+    return planWeek({ ...planInput, events: planInput.events.filter((e) => !(e.category === 'WORKOUT' && !(e.externalId ?? '').startsWith(`${EXTERNAL_PREFIX}-`))) });
+  }, [basePlan, planInput]);
   const plan = useMemo(
     () =>
       applySports({
-        plan: basePlan,
+        plan: autoPlan
+          ? { ...basePlan, days: basePlan.days.map((d) => (d.ride?.fixed === 'calendar' ? { ...d, recommended: autoPlan.days.find((x) => x.date === d.date)?.ride ?? null } : d)) }
+          : basePlan,
         sport,
         hours: week.hours,
         macroWeek: basePlan.macroWeek,
@@ -667,7 +674,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         weightKg: effProfile?.weightKg ?? null,
         minRestDays: settings.prefs.minRestDays,
       }),
-    [basePlan, sport, week.hours, readiness, data.activities, asOf, effProfile, settings.prefs.minRestDays],
+    [basePlan, autoPlan, sport, week.hours, readiness, data.activities, asOf, effProfile, settings.prefs.minRestDays],
   );
 
   // Remember what was planned (today onward) so compliance works even without pushing to intervals.icu
@@ -712,11 +719,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const prof = effProfile!;
       const outgoing = p.days.flatMap((d) => dayToIcuEvents(d, prof, settings.prefs.targetMode));
       const keep = new Set(outgoing.map((e) => e.external_id));
-      // A coach workout you replaced in your week is removed from your calendar, so it isn't there twice
-      const replacedCoach = p.days
+      // A coach workout you replaced stays on your calendar as a note (not a second workout for your Garmin)
+      const replaced = p.days
         .filter((d) => d.ride?.fixed !== 'calendar')
-        .flatMap((d) => events.filter((e) => e.date === d.date && e.category === 'WORKOUT' && (e.externalId ?? '').startsWith('tacoach-')).map((e) => e.externalId as string));
-      const stale = [...p.days.flatMap((d) => allExternalIdsFor(d.date)).filter((id) => !keep.has(id)), ...replacedCoach];
+        .flatMap((d) => events.filter((e) => e.date === d.date && e.category === 'WORKOUT' && (e.externalId ?? '').startsWith('tacoach-')));
+      for (const e of replaced)
+        outgoing.push({
+          category: 'NOTE',
+          start_date_local: `${e.date}T00:00:00`,
+          type: e.type ?? 'Ride',
+          name: `Coach’s plan: ${e.name} (you changed this day)`,
+          description: e.description ?? '',
+          moving_time: e.plannedSec ?? undefined,
+          external_id: e.externalId as string,
+        });
+      const stale = p.days.flatMap((d) => allExternalIdsFor(d.date)).filter((id) => !keep.has(id));
       const n = await pushEvents(conn, outgoing, stale);
       return `Sent ${n} workout${n === 1 ? '' : 's'} to your intervals.icu calendar. They sync on to Garmin Connect if "Upload planned workouts" is on in intervals.icu.`;
     },

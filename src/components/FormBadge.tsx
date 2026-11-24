@@ -1,5 +1,7 @@
 import { formZone } from '../engine/status';
 import type { TeamRider } from '../engine/team';
+import type { TeamState } from '../engine/teamState';
+import { STATE_META } from '../engine/teamState';
 
 export type FormKey = 'transition' | 'fresh' | 'grey' | 'optimal' | 'risk';
 
@@ -72,5 +74,18 @@ export function TeamFormCard({ riders, onOpen }: { riders: TeamRider[]; onOpen: 
         Form = fitness − fatigue (intervals.icu TSB). ✓ optimal · ↑ fresh · • grey zone · ↓ transition · ! high risk.
       </p>
     </div>
+  );
+}
+
+/** Large training-state badge (improving, maintaining, plateauing, recovering, detraining, overreaching, strained). */
+export function StateBadge({ state, size = 'lg' }: { state: TeamState; size?: 'lg' | 'sm' }) {
+  const tone = STATE_META[state.key].tone;
+  return (
+    <span className={`state-badge tone-${tone} ${size}`} title={`${state.why} Based on ${state.basis}.`} aria-label={`${state.label}: ${state.why}`}>
+      <span className="state-icon" aria-hidden>
+        {state.symbol}
+      </span>
+      {state.label}
+    </span>
   );
 }

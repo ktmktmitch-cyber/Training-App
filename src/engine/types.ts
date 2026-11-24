@@ -314,6 +314,8 @@ export interface PlannedDay {
   mobility?: MobilitySession | null;
   /** run / swim sessions (and brick runs) alongside or instead of the ride */
   extras?: PlannedWorkout[];
+  /** on days with a coach / calendar workout: what the plan itself would have recommended */
+  recommended?: PlannedWorkout | null;
   notes: string[];
   status: DayStatus;
 }

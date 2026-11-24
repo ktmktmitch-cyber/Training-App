@@ -1505,3 +1505,18 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .team-form-zone { border-radius: 10px; padding: 10px; background: color-mix(in srgb, var(--fc) 9%, transparent); border: 1px solid color-mix(in srgb, var(--fc) 30%, transparent); display: grid; gap: 6px; align-content: start; }
 .team-form-count { font-size: 24px; color: var(--fi); }
 @media (max-width: 720px) { .team-form-zones { grid-template-columns: 1fr 1fr; } }
+
+/* Training state badges */
+.state-badge { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 3px 12px 3px 3px; font-weight: 700; white-space: nowrap; background: color-mix(in srgb, var(--tc) 14%, transparent); color: var(--ti); border: 1px solid color-mix(in srgb, var(--tc) 40%, transparent); }
+.state-badge.lg { font-size: 15px; }
+.state-badge.sm { font-size: 12px; padding: 1px 9px 1px 2px; }
+.state-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--tc); color: #fff; font-size: 14px; font-weight: 800; flex: none; }
+.state-badge.sm .state-icon { width: 17px; height: 17px; font-size: 10px; }
+.tone-good { --tc: var(--good); --ti: var(--good-ink); }
+.tone-info { --tc: var(--accent); --ti: var(--accent); }
+.tone-neutral { --tc: var(--s-neutral); --ti: var(--ink-2); }
+.tone-warn { --tc: var(--warning); --ti: var(--warning-ink); }
+.tone-warn .state-icon { color: #0b0b0b; }
+.tone-serious { --tc: var(--serious); --ti: var(--serious); }
+.tone-bad { --tc: var(--critical); --ti: var(--critical-ink); }
+.state-col { min-width: 150px; }
