@@ -187,3 +187,34 @@ describe('journal tags', () => {
     expect(e['2026-11-23']).toBeUndefined();
   });
 });
+
+import { cadenceRange } from '../src/engine/exporters';
+import { blocksToZwo } from '../src/engine/zwo';
+import { blocksToIcuText } from '../src/engine/icuExport';
+describe('cadence targets', () => {
+  it('hard efforts carry cadence; tests and easy riding stay self-selected', () => {
+    const vo2 = plan('vo2_4x4');
+    const work = vo2.blocks.flatMap((b) => b.steps).filter((s) => s.low >= 106);
+    expect(work.length).toBeGreaterThan(0);
+    expect(work.every((s) => s.cadence === '95-105rpm')).toBe(true);
+    const thr = plan('threshold').blocks.flatMap((b) => b.steps).filter((s) => s.low >= 90);
+    expect(thr.every((s) => s.cadence === '85-95rpm')).toBe(true);
+    expect(plan('ftp_test').blocks.flatMap((b) => b.steps).filter((s) => s.low >= 90).some((s) => s.cadence)).toBe(false);
+    expect(plan('endurance').blocks.slice(1, -1).flatMap((b) => b.steps).some((s) => s.cadence)).toBe(false);
+    expect(plan('torque').blocks.flatMap((b) => b.steps).find((s) => s.low >= 80)!.cadence).toBe('55-65rpm'); // keeps its own
+  });
+
+  it('reaches Garmin (secondary target), Zwift and intervals.icu', () => {
+    const w = plan('vo2_4x4');
+    const d = new Decoder(Stream.fromByteArray(Array.from(workoutToFit(w))));
+    const { messages, errors } = d.read();
+    expect(errors).toEqual([]);
+    const cadSteps = messages.workoutStepMesgs!.filter((s: any) => s.secondaryTargetType === 'cadence');
+    expect(cadSteps.length).toBeGreaterThan(0);
+    expect(cadSteps.some((s: any) => s.secondaryCustomTargetValueLow === 95 || s.secondaryCustomTargetCadenceLow === 95)).toBe(true);
+    expect(blocksToZwo(w.blocks).join('\n')).toContain('Cadence="100"');
+    expect(blocksToIcuText(w.blocks, 'power')).toContain('95-105rpm');
+    expect(cadenceRange('100+rpm')).toEqual([100, 120]);
+    expect(cadenceRange('90rpm')).toEqual([85, 95]);
+  });
+});

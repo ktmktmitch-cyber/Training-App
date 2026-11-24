@@ -1535,3 +1535,5 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .coach-note { color: var(--ink-2); border-left: 3px solid var(--coach); padding-left: 6px; margin-top: 4px; }
 .chip.coach-chip { border-color: var(--coach); }
 .drop-day.coach { border-color: var(--coach); }
+.team-settings-table tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.team-settings-table td, .team-settings-table th { white-space: nowrap; }
