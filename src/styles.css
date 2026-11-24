@@ -1465,3 +1465,21 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .rider-checklist { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .rider-checklist .check { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; }
 .rider-checklist .rider-all { flex-basis: 100%; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+
+/* Usual week editor */
+.usual-days { display: grid; gap: 8px; }
+.usual-day { display: grid; grid-template-columns: 100px auto 1fr; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.usual-day:last-child { border-bottom: 0; }
+.field.inline { flex-direction: row; align-items: center; gap: 6px; }
+@media (max-width: 720px) { .usual-day { grid-template-columns: 1fr; gap: 6px; } }
+
+/* Switch */
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; font-size: 13px; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track { width: 36px; height: 20px; border-radius: 999px; background: var(--border-strong); position: relative; transition: background 0.15s; flex: none; }
+.switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.switch input:checked + .switch-track { background: var(--accent); }
+.switch input:checked + .switch-track::after { transform: translateX(16px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch input:disabled + .switch-track { opacity: 0.5; }
+.switch.disabled { cursor: default; opacity: 0.8; }

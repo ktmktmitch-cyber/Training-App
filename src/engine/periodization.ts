@@ -249,13 +249,24 @@ function strengthPhaseFor(phase: Phase, weekType: WeekType, weekInPhase: number,
 export const APP_RACE_PREFIX = 'race-';
 export const isAppRace = (e: CalendarEvent) => e.id.startsWith(APP_RACE_PREFIX);
 
-/** Weeks you can't train, as holiday days on the calendar (the planner leaves them empty). */
-export function withAwayWeeks(events: CalendarEvent[], awayWeeks: ISODate[] = []): CalendarEvent[] {
-  if (!awayWeeks.length) return events;
+/** Weeks mostly covered by date-range time off (4+ days) count as away weeks for the season plan. */
+export function awayWeeksFromRanges(ranges: { start: ISODate; end: ISODate }[] = []): ISODate[] {
+  const days = new Map<ISODate, number>();
+  for (const r of ranges) {
+    if (diffDays(r.end, r.start) < 0 || diffDays(r.end, r.start) > 120) continue;
+    for (let d = r.start; diffDays(r.end, d) >= 0; d = addDays(d, 1)) days.set(mondayOf(d), (days.get(mondayOf(d)) ?? 0) + 1);
+  }
+  return [...days].filter(([, n]) => n >= 4).map(([m]) => m);
+}
+
+/** Weeks and date ranges you can't train, as holiday days on the calendar (the planner leaves them empty). */
+export function withAwayWeeks(events: CalendarEvent[], awayWeeks: ISODate[] = [], ranges: { id: string; start: ISODate; end: ISODate; note?: string }[] = []): CalendarEvent[] {
+  if (!awayWeeks.length && !ranges.length) return events;
   const extra = awayWeeks.map<CalendarEvent>((d) => {
     const m = mondayOf(d);
     return { id: `away-${m}`, date: m, endDate: addDays(m, 6), category: 'HOLIDAY', name: 'Away — no training' };
   });
+  for (const r of ranges) extra.push({ id: `off-${r.id}`, date: r.start, endDate: r.end, category: 'HOLIDAY', name: r.note ? `Off — ${r.note}` : 'Off — no training' });
   return [...events, ...extra];
 }
 
@@ -397,7 +408,8 @@ export function buildMacroPlan(goal: GoalSettings, events: CalendarEvent[], asOf
     }
   });
 
-  applyRestWeeks(weeks, [...(goal.restWeeks ?? []), ...(goal.awayWeeks ?? [])], cycleLen, segs[0]?.phase ?? null, goal.awayWeeks ?? []);
+  const away = [...(goal.awayWeeks ?? []), ...awayWeeksFromRanges(goal.offRanges)];
+  applyRestWeeks(weeks, [...(goal.restWeeks ?? []), ...away], cycleLen, segs[0]?.phase ?? null, away);
   return { weeks, goalDate, taperDays, summary };
 }
 

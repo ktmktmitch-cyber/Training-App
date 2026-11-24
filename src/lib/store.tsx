@@ -558,7 +558,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [profile, ftp],
   );
 
-  const events = useMemo(() => withAwayWeeks(withAppRaces(data.events, settings.goal.races), settings.goal.awayWeeks), [data.events, settings.goal.races, settings.goal.awayWeeks]);
+  const events = useMemo(() => withAwayWeeks(withAppRaces(data.events, settings.goal.races), settings.goal.awayWeeks, settings.goal.offRanges), [data.events, settings.goal.races, settings.goal.awayWeeks, settings.goal.offRanges]);
   const macro = useMemo(() => buildMacroPlan(settings.goal, events, asOf), [settings.goal, events, asOf]);
   const readiness = useMemo(
     () => assessReadiness(data.wellness, asOf, { checkIn: effectiveCheckIn, model: settings.goal.model, effects }),

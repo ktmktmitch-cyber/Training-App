@@ -151,6 +151,7 @@ export interface GoalSettings {
   useCalendarRaces: boolean; // read RACE_A/B/C from intervals.icu
   restWeeks?: ISODate[]; // Mondays of weeks you chose to make rest weeks
   awayWeeks?: ISODate[]; // Mondays of weeks you can't train at all (travel, vacation)
+  offRanges?: { id: string; start: ISODate; end: ISODate; note?: string }[]; // exact days off (e.g. back mid-week)
   races?: PlannedRace[]; // races you added in the app
 }
 

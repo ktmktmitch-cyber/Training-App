@@ -69,18 +69,21 @@ export function WeekPage() {
               </span>
               {mw.weekType !== 'load' && <span className="chip">{mw.weekType === 'hit_block' ? 'HIT block' : `${mw.weekType} week`}</span>}
               <span>{mw.focus}</span>
-              {canChooseRest(mw) && (
-                <button
-                  className={`btn sm ${mw.userRest ? 'ghost' : ''}`}
-                  onClick={() => {
+              <label className={`switch ${canChooseRest(mw) ? '' : 'disabled'}`} title={canChooseRest(mw) ? 'Easy riding only, ~40% less volume; the loading cycle restarts after it' : mw.weekType === 'recovery' ? 'The plan already has this as a recovery week' : 'Taper and race weeks can’t be rest weeks'}>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={mw.weekType === 'recovery' || !!mw.userRest}
+                  disabled={!canChooseRest(mw)}
+                  onChange={() => {
                     toggleRestWeek(app, mw.start);
-                    showToast(mw.userRest ? 'Back to the normal plan for this week.' : 'Rest week set — easy riding only. Your next recovery week moves later.');
+                    showToast(mw.userRest ? 'Back to the normal plan for this week.' : 'Rest week on — easy riding only. Your next recovery week moves later.');
                   }}
-                  title="A planned easy week: ~40% less volume and no hard sessions. The loading cycle restarts after it."
-                >
-                  {mw.userRest ? 'Undo rest week' : 'Make this a rest week'}
-                </button>
-              )}
+                  aria-label="Rest week"
+                />
+                <span className="switch-track" aria-hidden />
+                Rest week{mw.weekType === 'recovery' && !mw.userRest ? ' (planned)' : ''}
+              </label>
             </div>
           )}
         </div>
@@ -140,9 +143,24 @@ export function WeekPage() {
               {groups.length ? ` · group ride ${groups.join(', ')}` : ''}
             </span>
           </div>
-          <button className="btn sm" onClick={() => setEditing((e) => !e)}>
-            {editing ? 'Done' : 'Edit this week'}
-          </button>
+          <div className="row" style={{ gap: 6 }}>
+            <a
+              className="btn sm ghost"
+              href="#/settings"
+              onClick={() => {
+                try {
+                  sessionStorage.setItem('ta.scrollTo', 'usual-week');
+                } catch {
+                  /* ignore */
+                }
+              }}
+            >
+              Edit usual week
+            </a>
+            <button className="btn sm" onClick={() => setEditing((e) => !e)}>
+              {editing ? 'Done' : 'Edit this week'}
+            </button>
+          </div>
         </div>
         {editing && <WeekSetup week={week} onChange={app.setWeek} onSaveUsual={() => { app.saveAsUsual(week); showToast('Saved as your usual week.'); }} onResetUsual={app.resetWeek} />}
       </div>
