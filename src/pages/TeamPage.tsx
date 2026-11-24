@@ -150,7 +150,7 @@ export function TeamPage() {
       {t.source === 'url' && app.canPush && (!app.account || app.account.role === 'coach') && (
         <details className="card more coach-sched">
           <summary>
-            <b>Coach: schedule workouts for your riders</b>
+            <b>Coach: send workouts to your riders</b>
           </summary>
           <div style={{ marginTop: 10 }}>
             <CoachSchedule riders={ok} onToast={showToast} />

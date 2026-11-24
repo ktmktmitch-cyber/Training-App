@@ -79,6 +79,13 @@ export function defaultDayCap(date: ISODate, hours: number): number {
 }
 
 const RIDE_EVENT_TYPES = new Set(['Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide']);
+const CAL_TYPES = new Set([...RIDE_EVENT_TYPES, 'Run', 'Swim']);
+
+/** Coach workouts sent from this app carry the library workout in their id: tacoach-<date>-<templateId>-L<level>-<rand> */
+export function parseCoachId(externalId: string | null | undefined): { templateId: string; level: number | null } | null {
+  const m = (externalId ?? '').match(/^tacoach-\d{4}-\d{2}-\d{2}-([a-z0-9_]+?)(?:-L(\d+))?-[a-z0-9]+$/);
+  return m && WORKOUT_BY_ID[m[1]] ? { templateId: m[1], level: m[2] != null ? Number(m[2]) : null } : null;
+}
 
 export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: CalendarEvent[], goalDate: ISODate | null): DayConfig {
   const user = week.days[date];
@@ -92,8 +99,11 @@ export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: Cale
   }
   if (goalDate === date) return { ...base, status: 'race', race: { name: 'Goal event', durationMin: 180, priority: 'A' } };
   // A ride already on the intervals.icu calendar (coach, TrainerRoad, …) — not one this app sent
-  const cal = evs.find((e) => e.category === 'WORKOUT' && (!e.type || RIDE_EVENT_TYPES.has(e.type)) && !(e.externalId ?? '').startsWith(`${EXTERNAL_PREFIX}-`) && e.date === date);
-  if (cal) return { ...base, status: 'scheduled', scheduled: { name: cal.name, durationMin: cal.plannedSec ? Math.round(cal.plannedSec / 60) : 60, tss: cal.plannedTss ?? null, description: cal.description ?? null, type: cal.type ?? null } };
+  const cal = evs.find((e) => e.category === 'WORKOUT' && (!e.type || CAL_TYPES.has(e.type)) && !(e.externalId ?? '').startsWith(`${EXTERNAL_PREFIX}-`) && e.date === date);
+  if (cal) {
+    const coach = parseCoachId(cal.externalId);
+    return { ...base, status: 'scheduled', scheduled: { name: cal.name, durationMin: cal.plannedSec ? Math.round(cal.plannedSec / 60) : 60, tss: cal.plannedTss ?? null, description: cal.description ?? null, type: cal.type ?? null, templateId: coach?.templateId ?? null, level: coach?.level ?? null, externalId: cal.externalId ?? null } };
+  }
   if (evs.some((e) => ['SICK', 'INJURED', 'HOLIDAY'].includes(e.category))) return { ...base, status: 'off' };
   return base;
 }
@@ -299,6 +309,15 @@ export function planWeek(input: PlanInput): WeekPlan {
         fixed: 'group',
       };
       w.fueling = fuelingFor(w, input.profile.weightKg);
+      ctx.rides[d] = w;
+      ctx.locked.add(d);
+      if (w.key) fixedHard++;
+    } else if (c.status === 'scheduled' && c.scheduled?.templateId && WORKOUT_BY_ID[c.scheduled.templateId]) {
+      // From your coach via this app: rebuild the real workout so its targets use YOUR FTP/zones and you can swap it
+      const sc = c.scheduled;
+      const t = getTemplate(sc.templateId!);
+      const coachNote = sc.description?.match(/^Coach: (.+)$/m)?.[1];
+      const w = makeWorkout(t, sc.durationMin, sc.level ?? levelFor(t, ctx, sc.durationMin), ctx, ['From your coach — targets use your own FTP and zones. Use Easier / Harder / Shorter or pick another workout to change it; your coach’s version is then replaced.', ...(coachNote ? [`Coach’s note: ${coachNote}`] : [])], { fixed: 'calendar' });
       ctx.rides[d] = w;
       ctx.locked.add(d);
       if (w.key) fixedHard++;
@@ -784,7 +803,7 @@ export interface Alternative {
  * alternative suggestions and TrainerRoad's easier/harder alternates).
  */
 export function workoutAlternatives(w: PlannedWorkout, progression: Progression | undefined, weightKg: number | null): Alternative[] {
-  if (w.fixed === 'group' || w.fixed === 'calendar' || w.category === 'race' || !WORKOUT_BY_ID[w.templateId] || (w.sport ?? 'ride') !== 'ride') return [];
+  if (w.fixed === 'group' || (w.fixed === 'calendar' && !WORKOUT_BY_ID[w.templateId]) || w.category === 'race' || !WORKOUT_BY_ID[w.templateId] || (w.sport ?? 'ride') !== 'ride') return [];
   const t = getTemplate(w.templateId);
   const zone = TEMPLATE_ZONE[t.id];
   const pl = zone && zone !== 'endurance' && progressionCapable(t) && progression?.[zone]?.source === 'history' ? progression[zone].level : null;

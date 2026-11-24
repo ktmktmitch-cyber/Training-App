@@ -7,6 +7,11 @@ import type { AthleteProfile, ISODate } from '../engine/types';
 import type { WorkoutTemplate } from '../engine/workouts';
 import { COACH_PREFIX, fetchRiderCalendar, pushEvents, type Connection } from './intervals';
 
+/** tacoach-<date>-<templateId>-L<level>-<rand>: lets the rider's app rebuild the exact workout with their own numbers. */
+export function coachExternalId(date: ISODate, templateId: string, level: number): string {
+  return `${COACH_PREFIX}-${date}-${templateId}-L${level}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+}
+
 export function coachError(e: Error, name: string): string {
   return /403|forbidden|permission/i.test(e.message)
     ? `${name} hasn’t added you as their coach on intervals.icu (or not with permission to edit their calendar).`
@@ -48,8 +53,9 @@ export async function sendToRiders(
         if ((t.sport ?? 'ride') === 'ride' && mode === 'power' && !ftp) throw new Error(`no FTP for ${r.rider} — set one in intervals.icu`);
         if (mode === 'hr' && !lthr) throw new Error(`no threshold HR for ${r.rider} in intervals.icu — use power/pace instead`);
         const w = instantiate(t, durationMin, level, profile?.weightKg ?? null, undefined, []);
-        const targets = { mode, ftp, lthr };
-        const desc = [note.trim() ? `Coach: ${note.trim()}` : '', workoutDescription(w, mode, (t.sport ?? 'ride') === 'ride' ? { targets, icuLthr: profile?.lthr ?? null } : undefined)].filter(Boolean).join('\n\n');
+        // Relative targets (% FTP, HR zones, % pace): intervals.icu turns them into each rider's own
+        // watts / bpm / pace, and keeps them right if their FTP or zones change later.
+        const desc = [note.trim() ? `Coach: ${note.trim()}` : '', workoutDescription(w, mode)].filter(Boolean).join('\n\n');
         await pushEvents(
           { ...conn, athleteId: r.id },
           [
@@ -61,12 +67,12 @@ export async function sendToRiders(
               description: desc,
               moving_time: Math.round(w.durationMin * 60),
               icu_training_load: w.tss,
-              external_id: `${COACH_PREFIX}-${date}-${w.templateId}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+              external_id: coachExternalId(date, w.templateId, w.level ?? level),
             },
           ],
           [],
         );
-        out.push({ rider: r, ok: true, detail: (t.sport ?? 'ride') === 'ride' ? (mode === 'hr' ? `HR ${lthr} bpm` : `FTP ${ftp} W`) : mode === 'hr' ? `HR ${lthr} bpm` : 'their threshold pace' });
+        out.push({ rider: r, ok: true, detail: `targets follow their ${(t.sport ?? 'ride') === 'ride' ? (mode === 'hr' ? `LTHR (${lthr} bpm now)` : `FTP (${ftp} W now)`) : mode === 'hr' ? `LTHR (${lthr} bpm now)` : 'threshold pace'}` });
       } catch (e) {
         out.push({ rider: r, ok: false, detail: coachError(e as Error, r.rider) });
       }

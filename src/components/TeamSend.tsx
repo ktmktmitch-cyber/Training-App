@@ -45,24 +45,26 @@ export function TeamSend({ t, durationMin, level }: { t: WorkoutTemplate; durati
         <b>Coach: send to riders</b> <span className="tiny muted">— the same workout, same day, scaled to each rider</span>
       </summary>
       <div className="stack" style={{ marginTop: 10 }}>
-        <div className="row" style={{ gap: 6 }} role="group" aria-label="Riders">
-          <button className={`chip chip-btn ${all ? 'on' : ''}`} aria-pressed={all} onClick={() => setPicked(all ? new Set() : new Set(riders.map((r) => r.id)))}>
-            {all ? '✓ Everyone' : 'Everyone'}
-          </button>
+        <div className="rider-checklist" role="group" aria-label="Riders">
+          <label className="check rider-all">
+            <input type="checkbox" checked={all} ref={(el) => { if (el) el.indeterminate = sel.length > 0 && !all; }} onChange={() => setPicked(all ? new Set() : new Set(riders.map((r) => r.id)))} />
+            <b>Everyone</b>
+            <span className="tiny muted">({riders.length})</span>
+          </label>
           {riders.map((r) => (
-            <button
-              key={r.id}
-              className={`chip chip-btn ${picked.has(r.id) ? 'on' : ''}`}
-              aria-pressed={picked.has(r.id)}
-              onClick={() => {
-                const n = new Set(picked);
-                if (n.has(r.id)) n.delete(r.id);
-                else n.add(r.id);
-                setPicked(n);
-              }}
-            >
-              {r.rider}
-            </button>
+            <label key={r.id} className="check">
+              <input
+                type="checkbox"
+                checked={picked.has(r.id)}
+                onChange={() => {
+                  const n = new Set(picked);
+                  if (n.has(r.id)) n.delete(r.id);
+                  else n.add(r.id);
+                  setPicked(n);
+                }}
+              />
+              <span>{r.rider}</span>
+            </label>
           ))}
         </div>
         <div className="row" style={{ alignItems: 'flex-end' }}>
@@ -91,7 +93,7 @@ export function TeamSend({ t, durationMin, level }: { t: WorkoutTemplate; durati
           <button className="btn primary" disabled={!sel.length || busy != null} onClick={send}>
             {busy != null ? `Sending ${busy}/${sel.length}…` : `Send to ${all ? 'everyone' : `${sel.length} rider${sel.length === 1 ? '' : 's'}`} · ${fmtLong(date)}`}
           </button>
-          <span className="tiny muted">Each rider’s targets come from their own intervals.icu settings.</span>
+          <span className="tiny muted">Sent as % of FTP / HR zones, so each rider gets their own watts or bpm — and they can adjust it in their week.</span>
         </div>
         {results && (
           <ul className="weeks-off" aria-label="Send results">

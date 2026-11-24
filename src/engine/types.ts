@@ -196,7 +196,7 @@ export interface DayConfig {
   pinned?: { workoutId: string; durationMin: number; level?: number };
   race?: { name: string; durationMin: number; priority: 'A' | 'B' | 'C' };
   /** a workout already on your intervals.icu calendar (from a coach, TrainerRoad, etc.) */
-  scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null };
+  scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null; templateId?: string | null; level?: number | null; externalId?: string | null };
   noLift?: boolean;
 }
 

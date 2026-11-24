@@ -1460,3 +1460,8 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 @media (max-width: 720px) {
   .drop-day { min-height: 46px; padding: 3px 4px; font-size: 9.5px; }
 }
+
+/* Coach rider checklist */
+.rider-checklist { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.rider-checklist .check { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; }
+.rider-checklist .rider-all { flex-basis: 100%; border-bottom: 1px solid var(--border); padding-bottom: 6px; }

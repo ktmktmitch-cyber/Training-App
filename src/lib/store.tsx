@@ -578,13 +578,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (p: WeekPlan) => {
       const conn = connection();
       const prof = effProfile!;
-      const events = p.days.flatMap((d) => dayToIcuEvents(d, prof, settings.prefs.targetMode));
-      const keep = new Set(events.map((e) => e.external_id));
-      const stale = p.days.flatMap((d) => allExternalIdsFor(d.date)).filter((id) => !keep.has(id));
-      const n = await pushEvents(conn, events, stale);
+      const outgoing = p.days.flatMap((d) => dayToIcuEvents(d, prof, settings.prefs.targetMode));
+      const keep = new Set(outgoing.map((e) => e.external_id));
+      // A coach workout you replaced in your week is removed from your calendar, so it isn't there twice
+      const replacedCoach = p.days
+        .filter((d) => d.ride?.fixed !== 'calendar')
+        .flatMap((d) => events.filter((e) => e.date === d.date && e.category === 'WORKOUT' && (e.externalId ?? '').startsWith('tacoach-')).map((e) => e.externalId as string));
+      const stale = [...p.days.flatMap((d) => allExternalIdsFor(d.date)).filter((id) => !keep.has(id)), ...replacedCoach];
+      const n = await pushEvents(conn, outgoing, stale);
       return `Sent ${n} workout${n === 1 ? '' : 's'} to your intervals.icu calendar. They sync on to Garmin Connect if "Upload planned workouts" is on in intervals.icu.`;
     },
-    [connection, effProfile, settings.prefs.targetMode],
+    [connection, effProfile, settings.prefs.targetMode, events],
   );
 
   const value: Ctx = {

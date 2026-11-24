@@ -173,6 +173,7 @@ export function DayCard(props: {
             {day.strength && <span className="chip">🏋 {day.strength.title}</span>}
             {r?.fixed === 'group' && <span className="chip">Your group ride</span>}
             {r?.fixed === 'pinned' && <span className="chip">Your pick</span>}
+            {r?.fixed === 'calendar' && <span className="chip">{day.ride?.why[0]?.startsWith('From your coach') ? 'From your coach' : 'On your calendar'}</span>}
             {day.mobility && <span className="chip">Mobility {day.mobility.minutes}′</span>}
             {r && (r.sport ?? 'ride') !== 'ride' && <span className="chip">{SPORT_NAME[r.sport!]}</span>}
             {extras.map((x, i) => (
