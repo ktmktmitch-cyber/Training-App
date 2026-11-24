@@ -9,6 +9,7 @@ import { TagPicker } from '../components/JournalCard';
 import { ReadinessCard } from '../components/ReadinessCard';
 import { Seg, useToast } from '../components/ui';
 import { WeekSetup } from '../components/WeekSetup';
+import { DataGapNotes } from '../components/EmptyStates';
 import { toggleRestWeek } from '../lib/restWeeks';
 import { useApp } from '../lib/store';
 
@@ -100,6 +101,7 @@ export function WeekPage() {
       </div>
 
       {app.data.info && <div className="callout">{app.data.info}</div>}
+      <DataGapNotes only={['hrv', 'rhr', 'sleep', 'stravaHidden']} />
 
       <NextWorkoutCard
         day={plan.days[0]}

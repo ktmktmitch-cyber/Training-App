@@ -66,7 +66,7 @@ export function CoachReadinessTable({ riders, metrics, deep, asOf, onOpen, loadi
                         {rd.score}
                       </span>
                     ) : (
-                      <span className="muted small">no HRV data</span>
+                      <span className="muted small" title="Needs Garmin/Oura/Whoop wellness syncing to intervals.icu">no HRV — connect Garmin wellness</span>
                     )}
                   </td>
                   <td className="num">

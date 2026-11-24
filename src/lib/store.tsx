@@ -122,12 +122,12 @@ export interface Scheduled {
   level: number;
 }
 
-function initialSettings(K: Keys, remote: RemoteState | null, signedIn: boolean, guest: boolean): AppSettings {
+function initialSettings(K: Keys, remote: RemoteState | null, _signedIn: boolean, _guest: boolean): AppSettings {
   const t = today();
   const stored = remote?.settings ?? load<Partial<AppSettings> | null>(K.settings, null);
   const base: AppSettings = {
     connection: { mode: 'auto', apiKey: '', athleteId: '', appPassword: '', useStrava: false },
-    demo: !signedIn,
+    demo: false, // no example data: pages ask you to connect intervals.icu
     goal: defaultGoal(t),
     strength: DEFAULT_STRENGTH,
     prefs: DEFAULT_PREFS,
@@ -137,7 +137,7 @@ function initialSettings(K: Keys, remote: RemoteState | null, signedIn: boolean,
     startOffset: 1,
     teamUrl: '',
   };
-  if (!stored) return guest ? { ...base, demo: true } : base;
+  if (!stored) return base;
   const merged: AppSettings = {
     ...base,
     ...stored,
@@ -146,7 +146,7 @@ function initialSettings(K: Keys, remote: RemoteState | null, signedIn: boolean,
     strength: { ...base.strength, ...stored.strength },
     prefs: { ...base.prefs, ...stored.prefs },
   };
-  return guest ? { ...merged, demo: true } : merged;
+  return { ...merged, demo: false };
 }
 
 const EMPTY_DATA: DataState = { profile: null, activities: [], wellness: [], events: [], source: 'none', lastSync: null, info: null };
@@ -335,7 +335,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const res = await fetchAll(conn, oldest, asOf, addDays(asOf, 365));
       let activities = res.activities;
       let info: string | null = null;
-      const limited = activities.filter((a) => a.limited).length;
       if (settings.connection.useStrava && strava?.connected) {
         try {
           const after = Math.floor(new Date(`${oldest}T00:00:00`).getTime() / 1000);
@@ -346,9 +345,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch (e) {
           info = `Strava fetch failed: ${(e as Error).message}`;
         }
-      } else if (limited > 0) {
-        info = `${limited} activit${limited === 1 ? 'y' : 'ies'} came from Strava and are hidden by intervals.icu's API. Connect Garmin directly in intervals.icu, or enable Strava here.`;
-      }
+      } // Strava-hidden activities are explained by the missing-data notes on each page
       const next: DataState = { ...res, activities, source: 'intervals', lastSync: new Date().toISOString(), info };
       setStored(next);
       save(K.data, next);

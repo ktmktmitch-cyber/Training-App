@@ -11,6 +11,7 @@ import { useApp } from '../lib/store';
 import { useTeam } from '../lib/team';
 import { CoachSchedule } from '../components/CoachSchedule';
 import { RiderSettingsPanel } from '../components/RiderSettingsPanel';
+import { ConnectPrompt } from '../components/EmptyStates';
 import { CoachReadinessTable } from '../components/CoachReadinessTable';
 import { FormBadge, StateBadge, TeamFormCard } from '../components/FormBadge';
 import { riderTrainingState } from '../engine/teamState';
@@ -104,6 +105,27 @@ export function TeamPage() {
   };
   const selRider = ok.find((r) => r.id === sel) ?? null;
 
+  if (app.data.source !== 'intervals')
+    return (
+      <>
+        <h1>Team</h1>
+        <ConnectPrompt what="your team’s standings" />
+      </>
+    );
+  const onTeam = !!team && (team.riders.some((r) => r.id === meId) || Object.values(t.deep).filter((d) => !d.error).length >= 2);
+  if (team && !onTeam)
+    return (
+      <>
+        <h1>Team</h1>
+        <div className="card stack">
+          <h2 style={{ margin: 0 }}>Join a team to see others’ data</h2>
+          <p className="small ink2">
+            You’re connected, but you’re not on this team’s roster yet, so teammates’ standings, form and training states aren’t shown. To join, ask the coach to add you to the team (they add your intervals.icu athlete ID{app.data.profile?.id ? ` — ${app.data.profile.id}` : ''} to the team dashboard). If they’re also coaching you, add them as your coach in intervals.icu → Settings → Coaches.
+          </p>
+          <p className="tiny muted">Your own plan, calendar and progress work without a team.</p>
+        </div>
+      </>
+    );
   if (!team) {
     return (
       <>
@@ -111,7 +133,7 @@ export function TeamPage() {
         <div className="card stack">
           <p className="ink2">{t.loading ? 'Loading team data…' : t.error ?? 'No team data yet.'}</p>
           <p className="small muted">
-            Data comes from your team-dashboard repository’s <code>data/team.json</code>, which its GitHub Action rebuilds every few hours from your coach account on intervals.icu. Change the URL in Settings → Team.
+            Data comes from your team-dashboard repository’s <code>data/team.json</code>, which its GitHub Action rebuilds every few hours from your coach account on intervals.icu. 
           </p>
           <div className="row">
             <button className="btn" onClick={t.refresh} disabled={t.loading}>

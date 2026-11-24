@@ -10,6 +10,7 @@ import { BestEffortsCard, EfficiencyCard, FtpCard, ImprovementCard, StalenessCar
 import { Seg, useToast } from '../components/ui';
 import { TAG_BY_KEY } from '../engine/journal';
 import { HeatCard } from '../components/HeatCard';
+import { DataGapNotes } from '../components/EmptyStates';
 import { useApp } from '../lib/store';
 
 function rolling(vals: (number | null)[], n: number): (number | null)[] {
@@ -100,6 +101,7 @@ export function TrendsPage() {
       <p className="small ink2" style={{ marginTop: -8 }}>
         <b>{app.status.label}:</b> {app.status.detail}
       </p>
+      <DataGapNotes />
       <Seg<Tab>
         value={tab}
         onChange={setTab}
