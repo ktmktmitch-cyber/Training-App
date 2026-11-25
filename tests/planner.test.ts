@@ -36,3 +36,13 @@ describe('coach: everyone view', () => {
     expect(g.map((x) => [x.name, x.items.length])).toEqual([['VO2', 2], ['Tempo', 1]]);
   });
 });
+
+import { carryDays } from '../src/lib/store';
+describe('rolling week', () => {
+  it('keeps a day change made yesterday in today’s window', () => {
+    const weeks: any = { '2026-11-24': { startDate: '2026-11-24', hours: 9, days: { '2026-11-28': { status: 'pinned', maxMinutes: null, pinned: { workoutId: 'threshold', durationMin: 60 } }, '2026-11-24': { status: 'off', maxMinutes: null } } } };
+    const w = carryDays(weeks, '2026-11-25', { startDate: '2026-11-25', hours: 8, days: {} });
+    expect(w.days['2026-11-28'].status).toBe('pinned');
+    expect(w.days['2026-11-24']).toBeUndefined(); // outside the window
+  });
+});

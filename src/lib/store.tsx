@@ -82,6 +82,19 @@ export interface DataState {
 
 export type { ServerInfo } from './auth';
 
+/** Overlay day settings saved in any earlier week that overlaps this 7-day window (newest wins). */
+export function carryDays(weeks: Record<ISODate, WeekConfig>, start: ISODate, into: WeekConfig): WeekConfig {
+  const dates = new Set(range(start, 7));
+  const days = { ...into.days };
+  const older = Object.values(weeks)
+    .filter((w) => w.startDate < start && diffDays(start, w.startDate) < 7)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  for (const w of older)
+    for (const [d, c] of Object.entries(w.days))
+      if (dates.has(d) && !(d in into.days && weeks[start])) days[d] = c;
+  return { ...into, days };
+}
+
 /** localStorage keys, namespaced per signed-in user ('local' keeps the original single-user keys). */
 function keysFor(ns: string) {
   const p = ns === 'local' ? 'ta.' : `ta.${ns}.`;
@@ -95,6 +108,7 @@ function keysFor(ns: string) {
     journal: `${p}journal.v1`,
     stamps: `${p}syncstamps.v1`,
     scheduled: `${p}scheduled.v1`,
+    pushed: `${p}pushed.v1`,
   };
 }
 type Keys = ReturnType<typeof keysFor>;
@@ -134,7 +148,7 @@ function initialSettings(K: Keys, remote: RemoteState | null, _signedIn: boolean
     ftpOverride: null,
     usualHours: 8,
     usualDays: {},
-    startOffset: 1,
+    startOffset: 0,
     teamUrl: '',
   };
   if (!stored) return base;
@@ -176,6 +190,8 @@ interface Ctx {
   trends: Trends;
   plan: WeekPlan;
   push: (plan: WeekPlan) => Promise<string>;
+  /** automatic sending of the week to intervals.icu */
+  autoPush: { state: 'idle' | 'saving' | 'saved' | 'error'; at: number | null; error: string | null };
   canPush: boolean;
   progression: Progression;
   loadFocus: LoadFocus;
@@ -484,7 +500,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flat]);
 
-  const startDate = addDays(asOf, settings.startOffset);
+  // The week always starts today (today's workout is part of the plan and goes to intervals.icu/Garmin)
+  const startDate = asOf;
 
   const makeWeek = useCallback(
     (start: ISODate): WeekConfig => {
@@ -498,7 +515,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [settings.usualDays, settings.usualHours],
   );
 
-  const baseWeek = useMemo(() => weeks[startDate] ?? makeWeek(startDate), [weeks, startDate, makeWeek]);
+  // Day changes (picks, moves, can't-train days…) belong to their date, not to the week they were made in:
+  // carry them over from earlier rolling weeks so they survive into tomorrow's 7-day window.
+  const baseWeek = useMemo(() => {
+    if (weeks[startDate]) return carryDays(weeks, startDate, weeks[startDate]);
+    const base = makeWeek(startDate);
+    const recent = Object.values(weeks)
+      .filter((w) => w.startDate < startDate && diffDays(startDate, w.startDate) < 7)
+      .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+    return carryDays(weeks, startDate, recent ? { ...base, hours: recent.hours } : base);
+  }, [weeks, startDate, makeWeek]);
   const week = useMemo<WeekConfig>(() => {
     const days = { ...baseWeek.days };
     for (const d of range(startDate, 7)) {
@@ -512,6 +538,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const resetWeek = useCallback(() => setWeeks((all) => {
     const n = { ...all };
     delete n[startDate];
+    // also drop changes carried over from the last few days' windows
+    for (const k of Object.keys(n)) if (k < startDate && diffDays(startDate, k) < 7) delete n[k];
     return n;
   }), [startDate]);
   const saveAsUsual = useCallback(
@@ -712,14 +740,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [connection, settings.prefs.targetMode, profile],
   );
 
-  const push = useCallback(
-    async (p: WeekPlan) => {
-      const conn = connection();
+  /** What your intervals.icu calendar should hold for this plan's days (and which app events to remove). */
+  const buildPush = useCallback(
+    (p: WeekPlan) => {
       const prof = effProfile!;
-      const outgoing = p.days.flatMap((d) => dayToIcuEvents(d, prof, settings.prefs.targetMode));
+      // A day you've already trained today stays as it is (keeps the planned workout paired with your ride)
+      const done = new Set(data.activities.filter((a) => a.date === asOf && !a.isStrength && a.movingSec > 600).map((a) => a.date));
+      const days = p.days.filter((d) => !done.has(d.date));
+      const outgoing = days.flatMap((d) => dayToIcuEvents(d, prof, settings.prefs.targetMode));
       const keep = new Set(outgoing.map((e) => e.external_id));
       // A coach workout you replaced stays on your calendar as a note (not a second workout for your Garmin)
-      const replaced = p.days
+      const replaced = days
         .filter((d) => d.ride?.fixed !== 'calendar')
         .flatMap((d) => events.filter((e) => e.date === d.date && e.category === 'WORKOUT' && (e.externalId ?? '').startsWith('tacoach-')));
       for (const e of replaced)
@@ -732,12 +763,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
           moving_time: e.plannedSec ?? undefined,
           external_id: e.externalId as string,
         });
-      const stale = p.days.flatMap((d) => allExternalIdsFor(d.date)).filter((id) => !keep.has(id));
-      const n = await pushEvents(conn, outgoing, stale);
+      const stale = days.flatMap((d) => allExternalIdsFor(d.date)).filter((id) => !keep.has(id));
+      return { outgoing, stale };
+    },
+    [effProfile, settings.prefs.targetMode, events, data.activities, asOf],
+  );
+
+  const [autoPush, setAutoPush] = useState<{ state: 'idle' | 'saving' | 'saved' | 'error'; at: number | null; error: string | null }>({ state: 'idle', at: null, error: null });
+  const push = useCallback(
+    async (p: WeekPlan) => {
+      const { outgoing, stale } = buildPush(p);
+      const n = await pushEvents(connection(), outgoing, stale);
+      save(K.pushed, JSON.stringify({ outgoing, stale }));
+      setAutoPush({ state: 'saved', at: Date.now(), error: null });
       return `Sent ${n} workout${n === 1 ? '' : 's'} to your intervals.icu calendar. They sync on to Garmin Connect if "Upload planned workouts" is on in intervals.icu.`;
     },
-    [connection, effProfile, settings.prefs.targetMode, events],
+    [connection, buildPush, K],
   );
+
+  // Keep your intervals.icu calendar matching the plan: whatever the week shows (your coach's workout,
+  // the recommendation or your own pick) is sent a few seconds after it changes, and only when it
+  // actually changed. Waits for fresh data (synced in the last 3 h) so it never acts on an old calendar.
+  const fresh = !!stored.lastSync && Date.now() - new Date(stored.lastSync).getTime() < 3 * 3600_000;
+  const pushSig = useMemo(() => {
+    if (!canPush || !fresh || !effProfile || stored.source !== 'intervals' || syncing) return null;
+    try {
+      return JSON.stringify(buildPush(plan));
+    } catch {
+      return null;
+    }
+  }, [canPush, fresh, effProfile, stored.source, syncing, buildPush, plan]);
+  useEffect(() => {
+    if (!pushSig || pushSig === load<string | null>(K.pushed, null)) return;
+    const t = setTimeout(() => {
+      setAutoPush((x) => ({ ...x, state: 'saving' }));
+      const { outgoing, stale } = JSON.parse(pushSig) as ReturnType<typeof buildPush>;
+      pushEvents(connection(), outgoing, stale)
+        .then(() => {
+          save(K.pushed, pushSig);
+          setAutoPush({ state: 'saved', at: Date.now(), error: null });
+        })
+        .catch((e) => setAutoPush({ state: 'error', at: Date.now(), error: (e as Error).message }));
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [pushSig, K, connection]);
 
   const value: Ctx = {
     settings,
@@ -765,6 +834,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     plan,
     push,
     canPush,
+    autoPush,
     progression,
     loadFocus,
     status,

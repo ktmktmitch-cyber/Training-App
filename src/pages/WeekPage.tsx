@@ -7,7 +7,7 @@ import { DayCard } from '../components/DayCard';
 import { ComplianceStrip, NextWorkoutCard } from '../components/insights';
 import { TagPicker } from '../components/JournalCard';
 import { ReadinessCard } from '../components/ReadinessCard';
-import { Seg, useToast } from '../components/ui';
+import { useToast } from '../components/ui';
 import { WeekSetup } from '../components/WeekSetup';
 import { DataGapNotes } from '../components/EmptyStates';
 import { toggleRestWeek } from '../lib/restWeeks';
@@ -88,35 +88,9 @@ export function WeekPage() {
             </div>
           )}
         </div>
-        <span className="spacer" />
-        <Seg<0 | 1>
-          value={settings.startOffset}
-          onChange={(v) => app.updateSettings((s) => ({ ...s, startOffset: v }))}
-          ariaLabel="Plan start"
-          options={[
-            { value: 1, label: 'From tomorrow' },
-            { value: 0, label: 'From today' },
-          ]}
-        />
       </div>
 
       {app.data.info && <div className="callout">{app.data.info}</div>}
-      {settings.startOffset === 1 &&
-        (() => {
-          const todayEv = app.events.find((e) => e.date === app.asOf && e.category === 'WORKOUT' && !(e.externalId ?? '').startsWith('trainingapp-'));
-          return todayEv ? (
-            <div className="callout row" style={{ alignItems: 'center' }}>
-              <span className="small">
-                <b>Today{(todayEv.externalId ?? '').startsWith('tacoach-') ? ' from your coach' : ' on your calendar'}:</b> {todayEv.name}
-                {todayEv.plannedSec ? ` · ${fmtMinutes(Math.round(todayEv.plannedSec / 60))}` : ''}
-              </span>
-              <span className="spacer" />
-              <button className="btn sm" onClick={() => app.updateSettings((x) => ({ ...x, startOffset: 0 }))}>
-                Include today
-              </button>
-            </div>
-          ) : null;
-        })()}
       <DataGapNotes only={['hrv', 'rhr', 'sleep', 'stravaHidden']} />
 
       <NextWorkoutCard
@@ -191,10 +165,19 @@ export function WeekPage() {
               Copy as text
             </button>
             <button className="btn sm primary" disabled={!app.canPush || pushing} onClick={doPush} title={app.canPush ? '' : 'Connect intervals.icu in Settings to send workouts'}>
-              {pushing ? 'Sending…' : 'Send to intervals.icu'}
+              {pushing ? 'Sending…' : 'Send now'}
             </button>
           </div>
         </div>
+        {app.canPush && (
+          <p className="tiny muted" style={{ margin: '0 0 8px' }} aria-live="polite">
+            {app.autoPush.state === 'saving'
+              ? 'Updating your intervals.icu calendar…'
+              : app.autoPush.state === 'error'
+                ? `Couldn’t update intervals.icu (${app.autoPush.error}) — it tries again on the next change, or tap Send now.`
+                : `This week stays in sync with your intervals.icu calendar (and Garmin) automatically${app.autoPush.at ? ` · updated ${new Date(app.autoPush.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : ''}.`}
+          </p>
+        )}
         <ul className="why">
           {plan.summary.map((s, i) => (
             <li key={i}>{s}</li>
