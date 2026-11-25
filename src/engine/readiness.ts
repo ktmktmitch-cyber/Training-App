@@ -242,22 +242,51 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
   }
 
   // ---------- Sleep ----------
+  // Last night matters most (one short night measurably blunts high-intensity performance and mood),
+  // and the 3-night average catches building sleep debt. The worse of the two counts, not both.
   const sleepPts = wellness.filter((w) => inWindow(w, addDays(asOf, -2), asOf) && w.sleepSec && w.sleepSec > 0);
-  const sleepAvg3h = sleepPts.length ? round(mean(sleepPts.map((w) => (w.sleepSec as number) / 3600)), 1) : null;
-  const scorePts = wellness.filter((w) => inWindow(w, addDays(asOf, -2), asOf) && w.sleepScore).map((w) => w.sleepScore as number);
-  if (sleepAvg3h != null) {
+  const sleepAvgRaw = sleepPts.length ? mean(sleepPts.map((w) => (w.sleepSec as number) / 3600)) : null;
+  const sleepAvg3h = sleepAvgRaw != null ? round(sleepAvgRaw, 1) : null;
+  const lastNightH = todayW?.sleepSec && todayW.sleepSec > 0 ? todayW.sleepSec / 3600 : null;
+  const fmtH = (h: number) => `${Math.floor(h)} h ${String(Math.round((h % 1) * 60)).padStart(2, '0')} min`;
+  if (sleepAvgRaw != null || lastNightH != null) {
     signals++;
-    if (sleepAvg3h < 5.5) {
-      score -= 15;
-      flags.push({ id: 'sleep-bad', level: 'bad', title: 'Very short sleep', detail: `Averaging ${sleepAvg3h} h over the last 3 nights.` });
-    } else if (sleepAvg3h < 6.5) {
-      score -= 8;
-      flags.push({ id: 'sleep-short', level: 'warn', title: 'Short sleep', detail: `Averaging ${sleepAvg3h} h over the last 3 nights — aim for 7-9 h in hard weeks.` });
+    const last =
+      lastNightH == null
+        ? null
+        : lastNightH < 5
+          ? { pts: 20, level: 'bad' as const, title: 'Very short sleep last night', detail: `${fmtH(lastNightH)} last night — expect hard efforts to feel harder; keep today easy or shorten the intensity.` }
+          : lastNightH < 6
+            ? { pts: 12, level: 'warn' as const, title: 'Short sleep last night', detail: `${fmtH(lastNightH)} last night — aim for 7-9 h, especially in hard weeks.` }
+            : lastNightH < 7
+              ? { pts: 5, level: 'info' as const, title: 'A bit short on sleep', detail: `${fmtH(lastNightH)} last night.` }
+              : null;
+    const avg =
+      sleepAvgRaw == null || sleepPts.length < 2
+        ? null
+        : sleepAvgRaw < 5.5
+          ? { pts: 15, level: 'bad' as const, title: 'Very short sleep', detail: `Averaging ${sleepAvg3h} h over the last 3 nights.` }
+          : sleepAvgRaw < 6.5
+            ? { pts: 8, level: 'warn' as const, title: 'Short sleep', detail: `Averaging ${sleepAvg3h} h over the last 3 nights — aim for 7-9 h in hard weeks.` }
+            : null;
+    const worst = [last, avg].filter(Boolean).sort((a, b) => b!.pts - a!.pts)[0];
+    if (worst) {
+      score -= worst.pts;
+      flags.push({ id: worst === last ? 'sleep-last' : 'sleep-short', level: worst.level, title: worst.title, detail: worst.detail });
     }
   }
-  if (scorePts.length >= 2 && mean(scorePts) < 50) {
-    score -= 5;
-    flags.push({ id: 'sleep-score', level: 'info', title: 'Poor sleep scores', detail: `Average sleep score ${round(mean(scorePts))} over the last 3 nights.` });
+  // Sleep score (Garmin bands: 90+ excellent, 80-89 good, 60-79 fair, under 60 poor)
+  const lastScore = todayW?.sleepScore ?? null;
+  if (lastScore != null) {
+    if (lastScore < 50) {
+      score -= 8;
+      flags.push({ id: 'sleep-score', level: 'warn', title: 'Poor sleep quality', detail: `Sleep score ${lastScore} last night.` });
+    } else if (lastScore < 60) {
+      score -= 5;
+      flags.push({ id: 'sleep-score', level: 'info', title: 'Poor sleep quality', detail: `Sleep score ${lastScore} last night (under 60 is “poor”).` });
+    } else if (lastScore < 70) {
+      score -= 2;
+    }
   }
 
   // ---------- Training stress balance ----------
@@ -345,6 +374,8 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
 
   score = clamp(Math.round(score), 0, 100);
   const sick = ci?.feel === 'sick';
+  // A serious red flag (e.g. under 5 h of sleep, very high fatigue) never reads as "ready to go"
+  if (flags.some((f) => f.level === 'bad')) score = Math.min(score, 74);
   let status: Readiness['status'] = score >= 75 ? 'green' : score >= 55 ? 'amber' : 'red';
   // HRV-guided model: a suppressed HRV average alone means "no intensity today" (Javaloyes et al. 2019)
   if (opts.model === 'hrv_flex' && hrvBelow && status === 'green') status = 'amber';
