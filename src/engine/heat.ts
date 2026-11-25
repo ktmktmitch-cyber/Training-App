@@ -39,9 +39,12 @@ export function heatDose(a: Activity): number {
   if (min < 20) return 0;
   const t = a.tempC;
   let f: number;
-  if (t != null && !a.indoor) f = Math.max(0, Math.min(1.5, (t - 26) / 7)); // device 26 °C → 0, 33 °C → 1
-  else if (a.indoor) f = 0.15; // warm room — most people ride indoors with fans, so only a mild stimulus
+  const ctx = a.context ?? [];
+  if (ctx.includes('no_fan')) f = 0.8; // indoors without a fan: core temperature climbs much like a hot day
+  else if (t != null && !a.indoor) f = Math.max(0, Math.min(1.5, (t - 26) / 7)); // device 26 °C → 0, 33 °C → 1
+  else if (a.indoor) f = ctx.includes('fan') ? 0.1 : 0.15; // warm room — most people ride indoors with fans, so only a mild stimulus
   else f = 0;
+  if (ctx.includes('hot')) f = Math.max(f, 0.7); // you marked it hot (temperature missing or understated)
   return Math.min(1.5, f * Math.min(1.5, min / 60));
 }
 

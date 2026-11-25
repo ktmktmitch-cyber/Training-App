@@ -8,6 +8,7 @@ import { analyzePerformance, type PerformanceAnalysis } from '../engine/performa
 import { computeStaleness, type Staleness } from '../engine/staleness';
 import { isHardSession } from '../engine/trends';
 import { heatAdaptation, type HeatAdaptation } from '../engine/heat';
+import { applyRideContext, type RideContext, type RideTag } from '../engine/rideContext';
 import { estimateVo2, type Vo2Estimate } from '../engine/vo2max';
 import { powerProfile, type PowerProfile } from '../engine/powerProfile';
 import { computeProgression, type Feedback, type Progression } from '../engine/progression';
@@ -109,6 +110,7 @@ function keysFor(ns: string) {
     stamps: `${p}syncstamps.v1`,
     scheduled: `${p}scheduled.v1`,
     pushed: `${p}pushed.v1`,
+    rideContext: `${p}ridecontext.v1`,
   };
 }
 type Keys = ReturnType<typeof keysFor>;
@@ -128,6 +130,7 @@ interface RemoteState {
   history?: Record<ISODate, PlanSnapshot>;
   journal?: Journal;
   scheduled?: Record<ISODate, Scheduled>;
+  rideContext?: RideContext;
 }
 
 export interface Scheduled {
@@ -214,6 +217,9 @@ interface Ctx {
   impacts: TagImpact[];
   performance: PerformanceAnalysis;
   scheduled: Record<ISODate, Scheduled>;
+  /** what you logged about each ride (caffeine, stimulant, indoor no fan…), by activity id */
+  rideContext: RideContext;
+  setRideContext: (activityId: string, tags: RideTag[]) => void;
   schedule: (date: ISODate, s: Scheduled | null) => void;
   pushWorkout: (date: ISODate, w: PlannedWorkout, targets?: ExportTargets) => Promise<string>;
   /** Default export targets: power from your eFTP (falls back to FTP), HR from your LTHR. */
@@ -255,6 +261,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [scheduled, setScheduled] = useState<Record<ISODate, Scheduled>>(() => remote?.scheduled ?? load(K.scheduled, {}));
   useEffect(() => save(K.journal, journalState), [journalState]);
   useEffect(() => save(K.scheduled, scheduled), [scheduled]);
+  const [rideContext, setRideContextState] = useState<RideContext>(() => remote?.rideContext ?? load(K.rideContext, {}));
+  useEffect(() => save(K.rideContext, rideContext), [K, rideContext]);
+  const setRideContext = useCallback(
+    (id: string, tags: RideTag[]) =>
+      setRideContextState((all) => {
+        const n = { ...all };
+        if (tags.length) n[id] = tags;
+        else delete n[id];
+        return n;
+      }),
+    [],
+  );
   const setJournalTags = useCallback(
     (date: ISODate, tags: TagKey[]) =>
       setJournalState((j) => {
@@ -304,8 +322,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       history,
       journal: journalState,
       scheduled,
+      rideContext,
     });
-  }, [account, saveRemote, settings, weeks, checkins, feedback, history, journalState, scheduled]);
+  }, [account, saveRemote, settings, weeks, checkins, feedback, history, journalState, scheduled, rideContext]);
 
   // Refresh "today" when the tab regains focus (app left open overnight)
   useEffect(() => {
@@ -389,8 +408,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const cloudOn = !account && !guest && !settings.demo && hasKey && settings.cloudSync !== false;
   const [cloud, setCloud] = useState<CloudStatus>({ state: 'off', at: null, error: null });
   const syncState: SyncState = useMemo(
-    () => ({ settings: settings as unknown as Record<string, unknown>, weeks, checkins, feedback, history, journal: journalState, scheduled }),
-    [settings, weeks, checkins, feedback, history, journalState, scheduled],
+    () => ({ settings: settings as unknown as Record<string, unknown>, weeks, checkins, feedback, history, journal: journalState, scheduled, rideContext }),
+    [settings, weeks, checkins, feedback, history, journalState, scheduled, rideContext],
   );
   const flat = useMemo(() => flatten(syncState), [syncState]);
   const prevFlat = useRef<Record<string, string> | null>(null);
@@ -431,6 +450,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setHistory((st.history ?? {}) as Record<ISODate, PlanSnapshot>);
     setJournalState((st.journal ?? {}) as Journal);
     setScheduled((st.scheduled ?? {}) as Record<ISODate, Scheduled>);
+    setRideContextState((st.rideContext ?? {}) as RideContext);
   }, []);
 
   /** Pull the note, merge it with this device, and save back if this device had newer changes. */
@@ -589,15 +609,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => assessReadiness(data.wellness, asOf, { checkIn: effectiveCheckIn, model: settings.goal.model, effects }),
     [data.wellness, asOf, effectiveCheckIn, settings.goal.model, effects],
   );
-  const trends = useMemo(() => computeTrends(data.activities, data.wellness, asOf), [data.activities, data.wellness, asOf]);
+  // Activities with the context you logged (indoor/no fan, caffeine, stimulant…) for the heart-rate based analyses
+  const tagged = useMemo(() => applyRideContext(data.activities, rideContext), [data.activities, rideContext]);
+  const trends = useMemo(() => computeTrends(tagged, data.wellness, asOf), [tagged, data.wellness, asOf]);
   const progression = useMemo(() => computeProgression(data.activities, feedback, asOf), [data.activities, feedback, asOf]);
   const loadFocus = useMemo(() => {
     const mw = macroWeekFor(macro, startDate);
     return computeLoadFocus(data.activities, asOf, mw?.phase ?? 'base', settings.goal.eventType);
   }, [data.activities, asOf, macro, startDate, settings.goal.eventType]);
-  const performance = useMemo(() => analyzePerformance(data.activities, data.wellness, effProfile, asOf), [data.activities, data.wellness, effProfile, asOf]);
+  const performance = useMemo(() => analyzePerformance(tagged, data.wellness, effProfile, asOf), [tagged, data.wellness, effProfile, asOf]);
   const impacts = useMemo(() => tagImpacts(journal, data.wellness, asOf), [journal, data.wellness, asOf]);
-  const heat = useMemo(() => heatAdaptation(data.activities, performance.model, asOf), [data.activities, performance.model, asOf]);
+  const heat = useMemo(() => heatAdaptation(tagged, performance.model, asOf), [tagged, performance.model, asOf]);
   const status = useMemo(() => trainingStatus(data.wellness, readiness, asOf, performance.improvement), [data.wellness, readiness, asOf, performance.improvement]);
   const vo2History = useMemo(
     () => data.wellness.filter((w) => w.vo2max && diffDays(asOf, w.date) >= 0 && diffDays(asOf, w.date) <= 180).map((w) => ({ date: w.date, vo2: w.vo2max as number })),
@@ -849,6 +871,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     impacts,
     performance,
     scheduled,
+    rideContext,
+    setRideContext,
     schedule,
     pushWorkout,
     getConnection: connection,

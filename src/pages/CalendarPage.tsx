@@ -1,3 +1,4 @@
+import { RideContextPicker } from '../components/RideContextPicker';
 import { useEffect, useMemo, useState } from 'react';
 import { computeCompliance } from '../engine/compliance';
 import { addDays, diffDays, fmtMinutes, fromISO, mondayOf, range } from '../engine/dates';
@@ -358,6 +359,7 @@ function DayDetail({ date, acts, evs, planned, snapshot, onToast, self = true }:
                 {a.avgHr != null && <span>HR {Math.round(a.avgHr)}</span>}
                 {a.rpe != null && <span>RPE {a.rpe}</span>}
               </div>
+              {self && !a.isStrength && a.movingSec >= 600 && <RideContextPicker activityId={a.id} />}
             </div>
           ))}
         </div>

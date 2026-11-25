@@ -1,3 +1,4 @@
+import { RIDE_TAG_BY_KEY } from '../engine/rideContext';
 import { fmtShort } from '../engine/dates';
 import type { PerformanceAnalysis } from '../engine/performance';
 import type { Staleness } from '../engine/staleness';
@@ -162,8 +163,24 @@ export function EfficiencyCard({ perf }: { perf: PerformanceAnalysis }) {
             </div>
             <div className="sub">per month at the same heart rate</div>
           </div>
+          {(perf.model.tagEffects ?? []).map((t) => (
+            <div key={t.tag} className="metric">
+              <div className="label">{t.label}</div>
+              <div className="value num">
+                {t.bpm >= 0 ? '+' : ''}
+                {t.bpm} bpm
+              </div>
+              <div className="sub">your effect at the same power · {t.n} rides</div>
+            </div>
+          ))}
         </div>
       )}
+      {perf.model?.excluded && (
+        <p className="tiny muted" style={{ marginTop: 6 }}>
+          {perf.model.excluded.n} ride{perf.model.excluded.n === 1 ? '' : 's'} left out of the heart-rate model because of the context you logged ({perf.model.excluded.tags.map((t) => RIDE_TAG_BY_KEY[t].short.toLowerCase()).join(', ')}). Once 4 or more rides share a tag, its effect on your heart rate is learned and corrected for instead.
+        </p>
+      )}
+      {perf.model && <p className="tiny muted" style={{ marginTop: 6 }}>Log caffeine, stimulant medication, indoor fan / no fan and more on any ride (Week → Last 7 days, or Calendar → tap a day) to sharpen these numbers.</p>}
     </div>
   );
 }

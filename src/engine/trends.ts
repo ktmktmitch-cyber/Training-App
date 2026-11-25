@@ -1,5 +1,6 @@
 // Training-history analysis: weekly load, intensity distribution, recent key sessions,
 // long-ride history, strength frequency, monotony/strain.
+import { hrConfounders } from './rideContext';
 import { addDays, diffDays, fmtMinutes, mondayOf } from './dates';
 import { ewma, mean, round, sd } from './stats';
 import type { Activity, ISODate, Trends, Wellness } from './types';
@@ -153,14 +154,15 @@ export function computeTrends(activities: Activity[], wellness: Wellness[], asOf
 
   // Aerobic decoupling (Pw:HR drift) on steady endurance rides: <5% ≈ well-developed aerobic base
   const steady = past
-    .filter((a) => a.isRide && a.decoupling != null && a.movingSec >= 75 * 60 && (a.intensity ?? 0) > 0 && (a.intensity ?? 1) <= 0.78 && diffDays(asOf, a.date) < 42)
+    // rides you tagged with something that inflates heart-rate drift (no fan, dehydrated, unwell…) are left out
+    .filter((a) => a.isRide && a.decoupling != null && a.movingSec >= 75 * 60 && (a.intensity ?? 0) > 0 && (a.intensity ?? 1) <= 0.78 && diffDays(asOf, a.date) < 42 && !hrConfounders(a).length)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 6);
   const decs = steady.map((a) => a.decoupling as number).sort((a, b) => a - b);
   const median = decs.length >= 2 ? round(decs[Math.floor((decs.length - 1) / 2)] / 2 + decs[Math.ceil((decs.length - 1) / 2)] / 2, 1) : null;
   const efOf = (from: number, to: number) => {
     const v = past
-      .filter((a) => a.isRide && a.efficiencyFactor && a.movingSec >= 3600 && (a.intensity ?? 1) <= 0.8 && diffDays(asOf, a.date) >= from && diffDays(asOf, a.date) < to)
+      .filter((a) => a.isRide && a.efficiencyFactor && a.movingSec >= 3600 && (a.intensity ?? 1) <= 0.8 && diffDays(asOf, a.date) >= from && diffDays(asOf, a.date) < to && !hrConfounders(a).length)
       .map((a) => a.efficiencyFactor as number);
     return v.length >= 2 ? mean(v) : null;
   };
