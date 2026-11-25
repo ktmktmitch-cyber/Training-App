@@ -326,24 +326,9 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
     }
   }
 
-  // ---------- In-app check-in ----------
+  // ---------- In-app check-in (applied last, after the data-based score — see below) ----------
   const ci = opts.checkIn && opts.checkIn.date === asOf ? opts.checkIn : null;
-  if (ci) {
-    signals++;
-    if (ci.feel === 'sick') {
-      score = Math.min(score, 20);
-      flags.push({ id: 'sick', level: 'bad', title: 'Feeling unwell', detail: 'Rest until symptoms clear. Above-the-neck mild symptoms: easy spinning at most; fever or chest symptoms: no training.' });
-    } else if (ci.feel === 'tired') {
-      score -= 15;
-      flags.push({ id: 'ci-tired', level: 'warn', title: 'You feel tired', detail: 'Subjective fatigue is one of the most sensitive markers of overreaching.' });
-    } else if (ci.feel === 'sore') {
-      score -= 8;
-      flags.push({ id: 'ci-sore', level: 'warn', title: 'You feel sore', detail: 'Delay heavy lower-body lifting and favour easy riding first.' });
-    } else if (ci.feel === 'great') {
-      score += 5;
-      flags.push({ id: 'ci-great', level: 'good', title: 'You feel great', detail: 'Nice — good day for a key session.' });
-    }
-  }
+  if (ci) signals++;
 
   if (signals === 0) {
     return {
@@ -376,6 +361,31 @@ export function assessReadiness(wellnessAll: Wellness[], asOf: ISODate, opts: Op
   const sick = ci?.feel === 'sick';
   // A serious red flag (e.g. under 5 h of sleep, very high fatigue) never reads as "ready to go"
   if (flags.some((f) => f.level === 'bad')) score = Math.min(score, 74);
+
+  // How you feel overrides the data by one step either way. Subjective wellbeing responds to training
+  // stress earlier and more consistently than HRV, resting HR or performance (Saw et al. 2016), so it
+  // can lift an amber day to green or a red day to amber — or pull a green day down. Sick always wins.
+  if (ci) {
+    const before = score;
+    const band = (x: number) => (x >= 75 ? 'green' : x >= 55 ? 'amber' : 'red');
+    const label = { green: 'Ready', amber: 'Caution', red: 'Rest' } as const;
+    if (ci.feel === 'sick') {
+      score = Math.min(score, 20);
+      flags.push({ id: 'sick', level: 'bad', title: 'Feeling unwell', detail: 'Rest until symptoms clear. Above-the-neck mild symptoms: easy spinning at most; fever or chest symptoms: no training.' });
+    } else if (ci.feel === 'great') {
+      // up one level: red → amber, amber → green, green gets a small boost
+      score = before >= 75 ? Math.min(100, before + 5) : before >= 55 ? Math.max(before + 10, 75) : Math.max(before + 10, 55);
+      flags.push({ id: 'ci-great', level: 'good', title: 'You feel great', detail: band(before) === band(score) ? 'Nice — good day for a key session.' : `Your check-in moved readiness from ${label[band(before)]} (${before}) to ${label[band(score)]} (${score}).` });
+    } else if (ci.feel === 'tired') {
+      // down one level: green → amber, amber → red
+      score = before >= 75 ? Math.min(before - 15, 70) : Math.min(before - 15, 50);
+      flags.push({ id: 'ci-tired', level: 'warn', title: 'You feel tired', detail: `Subjective fatigue is one of the most sensitive markers of overreaching${band(before) !== band(score) ? ` — your check-in moved readiness from ${label[band(before)]} (${before}) to ${label[band(score)]} (${score})` : ''}.` });
+    } else if (ci.feel === 'sore') {
+      score = before - 8;
+      flags.push({ id: 'ci-sore', level: 'warn', title: 'You feel sore', detail: 'Delay heavy lower-body lifting and favour easy riding first.' });
+    }
+    score = clamp(Math.round(score), 0, 100);
+  }
   let status: Readiness['status'] = score >= 75 ? 'green' : score >= 55 ? 'amber' : 'red';
   // HRV-guided model: a suppressed HRV average alone means "no intensity today" (Javaloyes et al. 2019)
   if (opts.model === 'hrv_flex' && hrvBelow && status === 'green') status = 'amber';

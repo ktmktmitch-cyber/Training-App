@@ -97,6 +97,17 @@ export function ReadinessCard({ r, asOf, checkIn, onCheckIn, extra }: { r: Readi
               ]}
             />
           </div>
+          <span className="tiny muted">
+            {checkIn?.feel === 'great'
+              ? 'Feeling great moves readiness up one level (Rest → Caution → Ready). Tap again to undo.'
+              : checkIn?.feel === 'tired'
+                ? 'Feeling tired moves readiness down one level and eases the plan. Tap again to undo.'
+                : checkIn?.feel === 'sick'
+                  ? 'Sick always means rest. Tap again to undo.'
+                  : checkIn?.feel === 'sore'
+                    ? 'Sore lowers readiness a little and keeps heavy leg lifting off today.'
+                    : 'Your answer adjusts the readiness meter — Great or Tired move it a level up or down.'}
+          </span>
           {extra}
         </div>
       </div>
