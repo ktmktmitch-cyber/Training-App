@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { addDays, dowLong, dowShort, fmtMinutes, fmtShort } from '../engine/dates';
+import { addDays, diffDays, dowLong, dowShort, fmtMinutes, fmtShort, mondayOf, range } from '../engine/dates';
 import { workoutDescription } from '../engine/icuExport';
 import { canChooseRest, PHASE_LABELS } from '../engine/periodization';
 import type { DayConfig } from '../engine/types';
 import { DayCard } from '../components/DayCard';
+import { PastDay } from '../components/PastDay';
 import { ComplianceStrip, NextWorkoutCard } from '../components/insights';
 import { TagPicker } from '../components/JournalCard';
 import { ReadinessCard } from '../components/ReadinessCard';
@@ -15,7 +16,7 @@ import { useApp } from '../lib/store';
 
 export function WeekPage() {
   const app = useApp();
-  const { plan, week, startDate, settings } = app;
+  const { plan, week, settings } = app;
   const [editing, setEditing] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [toast, showToast] = useToast();
@@ -56,12 +57,79 @@ export function WeekPage() {
     }
   };
 
+  // Weeks run Monday → Sunday: days already gone show what you did, the rest is the plan
+  const monday = mondayOf(app.asOf);
+  const sunday = addDays(monday, 6);
+  const pastDays = range(monday, Math.max(0, diffDays(app.asOf, monday)));
+  const thisWeek = plan.days.filter((d) => d.date <= sunday);
+  const nextWeek = plan.days.filter((d) => d.date > sunday);
+  const renderDay = (d: (typeof plan.days)[number]) => (
+          <DayCard
+      key={d.date}
+      day={d}
+      ftp={app.ftp}
+      profile={app.profile}
+      mode={settings.prefs.targetMode}
+      isToday={d.date === app.asOf}
+      customized={(!!week.days[d.date] && week.days[d.date].status !== 'available') || !!app.scheduled[d.date]}
+      groupCfg={week.days[d.date]?.group ?? null}
+      progression={app.progression}
+      onToast={showToast}
+      onSwap={(id, dur, level) => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
+      onRest={() => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'off' })}
+      moveTargets={plan.days
+        .filter((x) => x.date !== d.date && x.status !== 'off' && x.status !== 'race')
+        .map((x) => ({ date: x.date, label: `${dowLong(x.date)} ${fmtShort(x.date)}${x.ride ? ` (${x.ride.name})` : ' (rest)'}` }))}
+      movedTo={Object.entries(week.days).find(([, c]) => c.status === 'pinned' && c.pinned?.fromCoach && c.pinned.movedFrom === d.date)?.[0] ?? null}
+      onMove={(to) => {
+        const r = d.ride;
+        if (!r) return;
+        const days = { ...week.days };
+        const src = days[d.date];
+        const origin = src?.status === 'pinned' && src.pinned?.movedFrom ? src.pinned.movedFrom : d.date;
+        const coach = !!r.why[0]?.startsWith('From your coach');
+        if (r.fixed === 'calendar') days[d.date] = { ...(src ?? { maxMinutes: null }), status: 'available', skipCalendar: true, pinned: undefined };
+        else if (origin !== d.date) delete days[d.date];
+        else days[d.date] = { ...(src ?? { maxMinutes: null }), status: 'available', pinned: undefined };
+        if (to === origin && coach) {
+          // back where the coach put it
+          delete days[to];
+        } else {
+          days[to] = { ...(days[to] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: r.templateId, durationMin: r.durationMin, level: r.level, movedFrom: origin, fromCoach: coach } };
+        }
+        app.schedule(to, null);
+        app.setWeek({ ...week, days });
+        showToast(`Moved “${r.name}” to ${dowLong(to)} — the rest of the week re-planned around it.`);
+      }}
+      onReset={() => {
+        const mf = week.days[d.date]?.pinned?.movedFrom;
+        if (mf) {
+          const days = { ...week.days };
+          delete days[d.date];
+          if (days[mf]?.skipCalendar) delete days[mf];
+          app.setWeek({ ...week, days });
+          app.schedule(d.date, null);
+          showToast('Moved workout put back.');
+          return;
+        }
+        setDay(d.date, null);
+        app.schedule(d.date, null);
+        showToast('Back to the recommended workout.');
+      }}
+      onGroup={(g) => {
+        app.schedule(d.date, null);
+        setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'group', group: g });
+        showToast(`Group ride added — the rest of the week re-planned around it.`);
+      }}
+    />
+  );
+
   return (
     <>
       <div className="row">
         <div className="stack" style={{ gap: 2 }}>
           <h1>
-            Your week · {fmtShort(startDate)} – {fmtShort(addDays(startDate, 6))}
+            This week · {fmtShort(monday)} – {fmtShort(sunday)}
           </h1>
           {mw && (
             <div className="row small ink2">
@@ -198,67 +266,19 @@ export function WeekPage() {
       </div>
 
       <div className="days">
-        {plan.days.map((d) => (
-          <DayCard
-            key={d.date}
-            day={d}
-            ftp={app.ftp}
-            profile={app.profile}
-            mode={settings.prefs.targetMode}
-            isToday={d.date === app.asOf}
-            customized={(!!week.days[d.date] && week.days[d.date].status !== 'available') || !!app.scheduled[d.date]}
-            groupCfg={week.days[d.date]?.group ?? null}
-            progression={app.progression}
-            onToast={showToast}
-            onSwap={(id, dur, level) => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: id, durationMin: dur, level } })}
-            onRest={() => setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'off' })}
-            moveTargets={plan.days
-              .filter((x) => x.date !== d.date && x.status !== 'off' && x.status !== 'race')
-              .map((x) => ({ date: x.date, label: `${dowLong(x.date)} ${fmtShort(x.date)}${x.ride ? ` (${x.ride.name})` : ' (rest)'}` }))}
-            movedTo={Object.entries(week.days).find(([, c]) => c.status === 'pinned' && c.pinned?.fromCoach && c.pinned.movedFrom === d.date)?.[0] ?? null}
-            onMove={(to) => {
-              const r = d.ride;
-              if (!r) return;
-              const days = { ...week.days };
-              const src = days[d.date];
-              const origin = src?.status === 'pinned' && src.pinned?.movedFrom ? src.pinned.movedFrom : d.date;
-              const coach = !!r.why[0]?.startsWith('From your coach');
-              if (r.fixed === 'calendar') days[d.date] = { ...(src ?? { maxMinutes: null }), status: 'available', skipCalendar: true, pinned: undefined };
-              else if (origin !== d.date) delete days[d.date];
-              else days[d.date] = { ...(src ?? { maxMinutes: null }), status: 'available', pinned: undefined };
-              if (to === origin && coach) {
-                // back where the coach put it
-                delete days[to];
-              } else {
-                days[to] = { ...(days[to] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: r.templateId, durationMin: r.durationMin, level: r.level, movedFrom: origin, fromCoach: coach } };
-              }
-              app.schedule(to, null);
-              app.setWeek({ ...week, days });
-              showToast(`Moved “${r.name}” to ${dowLong(to)} — the rest of the week re-planned around it.`);
-            }}
-            onReset={() => {
-              const mf = week.days[d.date]?.pinned?.movedFrom;
-              if (mf) {
-                const days = { ...week.days };
-                delete days[d.date];
-                if (days[mf]?.skipCalendar) delete days[mf];
-                app.setWeek({ ...week, days });
-                app.schedule(d.date, null);
-                showToast('Moved workout put back.');
-                return;
-              }
-              setDay(d.date, null);
-              app.schedule(d.date, null);
-              showToast('Back to the recommended workout.');
-            }}
-            onGroup={(g) => {
-              app.schedule(d.date, null);
-              setDay(d.date, { ...(week.days[d.date] ?? { maxMinutes: null }), status: 'group', group: g });
-              showToast(`Group ride added — the rest of the week re-planned around it.`);
-            }}
-          />
+        {pastDays.map((date) => (
+          <PastDay key={date} date={date} />
         ))}
+        {thisWeek.map((d) => renderDay(d))}
       </div>
+      {nextWeek.length > 0 && (
+        <>
+          <h2 className="week-next">
+            Next week · {fmtShort(addDays(sunday, 1))} – {fmtShort(addDays(sunday, 7))}
+          </h2>
+          <div className="days">{nextWeek.map((d) => renderDay(d))}</div>
+        </>
+      )}
       {toast}
     </>
   );

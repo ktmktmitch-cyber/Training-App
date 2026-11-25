@@ -1,4 +1,5 @@
 import { RideContextPicker } from './RideContextPicker';
+import { ReviewToggle } from './WorkoutReview';
 import { useMemo, useState } from 'react';
 import type { ComplianceDay } from '../engine/compliance';
 import { dowShort, fmtLong, fmtMinutes, fmtShort, fromISO } from '../engine/dates';
@@ -229,9 +230,10 @@ export function ComplianceStrip({
             </div>
           ))}
           {sel.done.map((a) => (
-            <div key={`ctx-${a.id}`}>
+            <div key={`ctx-${a.id}`} className="stack" style={{ gap: 8 }}>
               {sel.done.length > 1 && <span className="tiny muted">{a.name}</span>}
               <RideContextPicker activityId={a.id} />
+              {!a.isStrength && <ReviewToggle activity={a} />}
             </div>
           ))}
         </div>

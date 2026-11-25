@@ -1537,3 +1537,30 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .drop-day.coach { border-color: var(--coach); }
 .team-settings-table tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .team-settings-table td, .team-settings-table th { white-space: nowrap; }
+
+/* Workout review */
+.review { border-top: 1px solid var(--line, rgba(127,127,127,.25)); padding-top: 10px; }
+.review-score { width: 74px; height: 74px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 4px solid currentColor; flex: 0 0 auto; }
+.review-score b { font-size: 24px; line-height: 1; color: var(--ink); }
+.review-score.tone-good { color: var(--good); }
+.review-score.tone-ok { color: var(--accent); }
+.review-score.tone-warn { color: var(--warning); }
+.review-score.tone-bad { color: var(--critical, #d03b3b); }
+.review-table td, .review-table th { white-space: nowrap; }
+.review-off { font-weight: 600; }
+.review-chart { width: 100%; height: 110px; display: block; }
+.rv-target { fill: color-mix(in srgb, var(--accent) 22%, transparent); }
+.box.rv-target { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.rv-actual { fill: var(--good); }
+.rv-actual.st-warn { fill: var(--warning); }
+.rv-actual.st-bad { fill: var(--critical, #d03b3b); }
+.rv-actual.st-open { fill: var(--muted); }
+.box.rv-actual { background: var(--good); }
+.rv-work td { font-weight: 600; }
+.rv-chip.good { border-color: var(--good); color: var(--good-ink); }
+.rv-chip.warn { border-color: var(--warning); color: var(--warning-ink); }
+.rv-chip.bad { border-color: var(--critical, #d03b3b); }
+.day.past { opacity: 0.92; }
+.day.past .past-head { cursor: default; align-items: flex-start; }
+.day.past.missed .dom { color: var(--muted); }
+.week-next { margin: 18px 0 8px; font-size: 1.05rem; }
