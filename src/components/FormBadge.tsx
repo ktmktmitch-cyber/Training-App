@@ -36,10 +36,11 @@ export function FormBadge({ tsb, size = 'lg' }: { tsb: number | null | undefined
 
 /** Team form at a glance: how many riders are in each zone, and who. */
 export function TeamFormCard({ riders, onOpen }: { riders: TeamRider[]; onOpen: (id: string) => void }) {
-  const order: FormKey[] = ['optimal', 'fresh', 'grey', 'transition', 'risk'];
+  // lowest form (most fatigued) on the left → freshest on the right, like intervals.icu's form chart
+  const order: FormKey[] = ['risk', 'optimal', 'grey', 'fresh', 'transition'];
   const withForm = riders.filter((r) => r.form != null);
   const groups = order.map((k) => ({ k, rs: withForm.filter((r) => formKey(r.form!) === k).sort((a, b) => a.form! - b.form!) }));
-  const inOptimal = groups[0].rs.length;
+  const inOptimal = groups.find((g) => g.k === 'optimal')!.rs.length;
   return (
     <div className="card team-form">
       <div className="card-head">
@@ -71,7 +72,7 @@ export function TeamFormCard({ riders, onOpen }: { riders: TeamRider[]; onOpen: 
         ))}
       </div>
       <p className="tiny muted" style={{ marginTop: 8 }}>
-        Form = fitness − fatigue (intervals.icu TSB). ✓ optimal · ↑ fresh · • grey zone · ↓ transition · ! high risk.
+        Form = fitness − fatigue (intervals.icu TSB), lowest on the left: ! high risk (below −30) · ✓ optimal (−30 to −10) · • grey zone · ↑ fresh · ↓ transition (above +25).
       </p>
     </div>
   );

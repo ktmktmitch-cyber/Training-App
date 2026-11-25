@@ -2,7 +2,7 @@
 // Works through the bundled Node proxy (/api/icu → intervals.icu, no CORS issues, key
 // can live server-side) or directly from the browser with your API key.
 import { addDays } from '../engine/dates';
-import type { Activity, AthleteProfile, CalendarEvent, ISODate, PowerCurve, Wellness } from '../engine/types';
+import type { Activity, AthleteProfile, Block, CalendarEvent, ISODate, PowerCurve, Step, Wellness } from '../engine/types';
 import type { IcuEvent } from '../engine/icuExport';
 
 export interface Connection {
@@ -24,7 +24,37 @@ export class ApiError extends Error {
   }
 }
 
+// intervals.icu throttles bursts, and its "too many requests" replies carry no CORS headers, so the
+// browser reports them as a network error. Keep at most a few requests in flight across the whole app
+// (the Team page can otherwise fire ~25 at once) and retry transient failures with a short backoff.
+const MAX_IN_FLIGHT = 3;
+let inFlight = 0;
+const waiting: (() => void)[] = [];
+async function slot<T>(fn: () => Promise<T>): Promise<T> {
+  if (inFlight >= MAX_IN_FLIGHT) await new Promise<void>((r) => waiting.push(r));
+  inFlight++;
+  try {
+    return await fn();
+  } finally {
+    inFlight--;
+    waiting.shift()?.();
+  }
+}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const transient = (e: unknown) => e instanceof ApiError && (e.status === 0 || e.status === 429 || e.status === 502 || e.status === 503 || e.status === 504);
+
 async function call<T>(conn: Connection, path: string, init: RequestInit = {}): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await slot(() => callOnce<T>(conn, path, init));
+    } catch (e) {
+      if (attempt >= 2 || !transient(e)) throw e;
+      await sleep(attempt === 0 ? 1000 : 3000);
+    }
+  }
+}
+
+async function callOnce<T>(conn: Connection, path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json', ...(init.headers as Record<string, string>) };
   if (conn.apiKey) headers.authorization = 'Basic ' + btoa(`API_KEY:${conn.apiKey}`);
   if (conn.appPassword) headers['x-app-password'] = conn.appPassword;
@@ -34,7 +64,7 @@ async function call<T>(conn: Connection, path: string, init: RequestInit = {}): 
   try {
     res = await fetch(`${conn.base}${path}`, { ...init, headers });
   } catch (e) {
-    throw new ApiError(0, `Network error reaching intervals.icu (${(e as Error).message}). If you're running the static build, the browser may be blocking the request — run the bundled server instead (npm start).`);
+    throw new ApiError(0, `Couldn’t reach intervals.icu (${(e as Error).message}) — it may be busy or your connection dropped. Try again in a moment.`);
   }
   if (!res.ok) {
     let msg = res.statusText;
@@ -137,6 +167,48 @@ interface RawEvent {
   moving_time?: number | null;
   icu_training_load?: number | null;
   description?: string | null;
+  workout_doc?: { steps?: RawDocStep[] } | null;
+  paired_activity_id?: string | number | null;
+}
+
+interface RawDocStep {
+  duration?: number;
+  reps?: number;
+  steps?: RawDocStep[];
+  ramp?: boolean;
+  warmup?: boolean;
+  cooldown?: boolean;
+  text?: string;
+  power?: { start?: number; end?: number; value?: number; units?: string };
+  cadence?: { start?: number; end?: number; value?: number; units?: string };
+}
+
+/** intervals.icu's structured workout → our blocks (% FTP). Watts are converted with the given FTP; steps
+ * without a power target (HR / pace / free) keep their duration with an open target. */
+export function parseWorkoutDoc(raw: unknown, ftp: number | null): Block[] | null {
+  const steps = (raw as RawEvent['workout_doc'])?.steps;
+  if (!steps?.length) return null;
+  const pct = (v: number | undefined, units: string | undefined) => (v == null ? null : units === 'w' || units === 'watts' ? (ftp ? (v / ftp) * 100 : null) : units === '%ftp' || !units ? v : null);
+  const toStep = (s: RawDocStep): Step | null => {
+    if (!s.duration) return null;
+    const p = s.power;
+    const lo = pct(p?.start ?? p?.value, p?.units);
+    const hi = pct(p?.end ?? p?.value, p?.units);
+    const c = s.cadence;
+    const cad = c ? (c.start != null && c.end != null ? `${c.start}-${c.end}rpm` : c.value != null ? `${c.value}rpm` : undefined) : undefined;
+    return { durationSec: s.duration, low: Math.round(lo ?? 0), high: Math.round(hi ?? lo ?? 0), ramp: !!s.ramp, cadence: cad, label: s.text || (s.warmup ? 'Warm-up' : s.cooldown ? 'Cool-down' : lo == null ? 'Free' : undefined) };
+  };
+  const out: Block[] = [];
+  for (const s of steps) {
+    if (s.steps?.length) {
+      const inner = s.steps.map(toStep).filter((x): x is Step => !!x);
+      if (inner.length) out.push({ name: s.text?.replace(/\s*\d+x$/i, '') || 'Set', reps: Math.max(1, s.reps ?? 1), steps: inner });
+    } else {
+      const st = toStep(s);
+      if (st) out.push({ name: s.warmup ? 'Warmup' : s.cooldown ? 'Cooldown' : undefined, reps: 1, steps: [st] });
+    }
+  }
+  return out.length ? out : null;
 }
 
 // ---------- normalisers ----------
@@ -270,6 +342,8 @@ export function normalizeEvent(e: RawEvent): CalendarEvent {
     plannedSec: e.moving_time ?? null,
     plannedTss: e.icu_training_load ?? null,
     description: e.description ?? null,
+    workoutDoc: e.category === 'WORKOUT' && e.workout_doc?.steps?.length ? e.workout_doc : undefined,
+    pairedActivityId: e.paired_activity_id != null ? String(e.paired_activity_id) : null,
   };
 }
 
@@ -393,4 +467,24 @@ export async function pushEvents(conn: Connection, events: IcuEvent[], staleExte
     body: JSON.stringify(events),
   });
   return Array.isArray(res) ? res.length : events.length;
+}
+
+/** An activity's laps / detected intervals (on-demand, for the workout review). */
+export interface Lap {
+  start: number; // seconds from the start
+  secs: number; // moving time
+  avgW: number | null;
+  np: number | null;
+  hr: number | null;
+  cadence: number | null;
+}
+export async function fetchActivityLaps(conn: Connection, activityId: string): Promise<Lap[]> {
+  const r = await call<{ icu_intervals?: { start_time?: number; moving_time?: number; elapsed_time?: number; average_watts?: number | null; weighted_average_watts?: number | null; average_heartrate?: number | null; average_cadence?: number | null }[] }>(conn, `/activity/${activityId}/intervals`);
+  return (r?.icu_intervals ?? []).map((x) => ({ start: x.start_time ?? 0, secs: x.moving_time ?? x.elapsed_time ?? 0, avgW: x.average_watts ?? null, np: x.weighted_average_watts ?? null, hr: x.average_heartrate ?? null, cadence: x.average_cadence ?? null }));
+}
+/** Second-by-second power / heart rate / cadence (fallback when a ride has no usable laps). */
+export async function fetchActivityStreams(conn: Connection, activityId: string): Promise<{ time: number[]; watts: number[]; hr: number[]; cadence: number[] }> {
+  const r = await call<{ type: string; data: (number | null)[] }[]>(conn, `/activity/${activityId}/streams?types=time,watts,heartrate,cadence`);
+  const get = (t: string) => (r ?? []).find((s) => s.type === t)?.data.map((v) => v ?? 0) ?? [];
+  return { time: get('time'), watts: get('watts'), hr: get('heartrate'), cadence: get('cadence') };
 }

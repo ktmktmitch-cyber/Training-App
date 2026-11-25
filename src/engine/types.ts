@@ -119,6 +119,10 @@ export interface CalendarEvent {
   plannedSec?: number | null;
   plannedTss?: number | null;
   description?: string | null;
+  /** intervals.icu's structured steps for a planned workout (raw workout_doc; parsed with parseWorkoutDoc) */
+  workoutDoc?: unknown;
+  /** the activity intervals.icu paired this planned workout with */
+  pairedActivityId?: string | null;
 }
 
 // ---------- User settings ----------
