@@ -1,4 +1,5 @@
 import { RideContextPicker } from '../components/RideContextPicker';
+import { ReviewToggle } from '../components/WorkoutReview';
 import { useEffect, useMemo, useState } from 'react';
 import { computeCompliance } from '../engine/compliance';
 import { addDays, diffDays, fmtMinutes, fromISO, mondayOf, range } from '../engine/dates';
@@ -360,6 +361,7 @@ function DayDetail({ date, acts, evs, planned, snapshot, onToast, self = true }:
                 {a.rpe != null && <span>RPE {a.rpe}</span>}
               </div>
               {self && !a.isStrength && a.movingSec >= 600 && <RideContextPicker activityId={a.id} />}
+              {self && !a.isStrength && a.movingSec >= 600 && <ReviewToggle activity={a} />}
             </div>
           ))}
         </div>
