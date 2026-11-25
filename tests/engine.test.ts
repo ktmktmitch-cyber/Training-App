@@ -352,3 +352,25 @@ describe('coach workouts in the rider’s plan', () => {
     expect(workoutAlternatives(d.ride!, inp.progression, 72).length).toBeGreaterThan(0);
   });
 });
+
+import { assessReadiness as ar } from '../src/engine/readiness';
+describe('readiness and sleep', () => {
+  const day = (date: string, sleepH: number, score: number) => ({ date, hrv: 45, rhr: 50, sleepSec: sleepH * 3600, sleepScore: score, ctl: 50, atl: 50, rampRate: 0, soreness: null, fatigue: null, stress: null, mood: null, motivation: null, eftp: null });
+  const hist = Array.from({ length: 20 }, (_, i) => day(`2026-11-${String(i + 1).padStart(2, '0')}`, 7.8, 82));
+  it('one very short night is not averaged away', () => {
+    const r = ar([...hist, day('2026-11-21', 7.5, 70), day('2026-11-22', 7.5, 70), day('2026-11-23', 4.4, 51)] as any, '2026-11-23');
+    expect(r.score!).toBeLessThan(75);
+    expect(r.status).not.toBe('green');
+    expect(r.flags.some((f) => f.id === 'sleep-last')).toBe(true);
+  });
+  it('a normal night stays green', () => {
+    const r = ar([...hist, day('2026-11-21', 7.8, 82)] as any, '2026-11-21');
+    expect(r.status).toBe('green');
+    expect(r.flags.some((f) => f.id.startsWith('sleep'))).toBe(false);
+  });
+  it('a fair night (6.5 h, score 65) costs a little but stays green', () => {
+    const r = ar([...hist, day('2026-11-21', 6.5, 65)] as any, '2026-11-21');
+    expect(r.status).toBe('green');
+    expect(r.score!).toBeLessThan(100);
+  });
+});
