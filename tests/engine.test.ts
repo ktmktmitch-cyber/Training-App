@@ -374,3 +374,25 @@ describe('readiness and sleep', () => {
     expect(r.score!).toBeLessThan(100);
   });
 });
+
+describe('check-in overrides readiness by one step', () => {
+  const day = (date: string, sleepH: number, score: number) => ({ date, hrv: 45, rhr: 50, sleepSec: sleepH * 3600, sleepScore: score, ctl: 50, atl: 50, rampRate: 0, soreness: null, fatigue: null, stress: null, mood: null, motivation: null, eftp: null });
+  const hist = Array.from({ length: 20 }, (_, i) => day(`2026-11-${String(i + 1).padStart(2, '0')}`, 7.8, 82));
+  const shortNight = [...hist, day('2026-11-21', 4.4, 51)] as any;
+  const goodNight = [...hist, day('2026-11-21', 7.8, 82)] as any;
+  const ci = (feel: string) => ({ checkIn: { date: '2026-11-21', feel } as any });
+  it('feeling great lifts amber to green', () => {
+    expect(ar(shortNight, '2026-11-21').status).toBe('amber');
+    const r = ar(shortNight, '2026-11-21', ci('great'));
+    expect(r.status).toBe('green');
+    expect(r.flags.find((f) => f.id === 'ci-great')!.detail).toMatch(/moved readiness from Caution/);
+  });
+  it('feeling tired pulls green down to amber, and amber to red', () => {
+    expect(ar(goodNight, '2026-11-21', ci('tired')).status).toBe('amber');
+    expect(ar(shortNight, '2026-11-21', ci('tired')).status).toBe('red');
+  });
+  it('normal leaves it alone; sick is always rest', () => {
+    expect(ar(goodNight, '2026-11-21', ci('normal')).score).toBe(ar(goodNight, '2026-11-21').score);
+    expect(ar(goodNight, '2026-11-21', ci('sick')).status).toBe('red');
+  });
+});
