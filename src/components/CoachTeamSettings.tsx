@@ -192,6 +192,14 @@ export function CoachTeamSettings({ riders, onToast }: { riders: TeamRider[]; on
         Set training settings for the whole team at once, for the riders you tick, or for one rider (tap a name in the table). Changes go to each rider’s synced app settings on intervals.icu; their app applies them the next time it syncs. Anything left on “Keep” isn’t touched.
       </span>
 
+      {Object.values(loaded).some((l) => !l.ok) && (
+        <div className="row" style={{ alignItems: 'center' }}>
+          <span className="tiny muted">Some riders couldn’t be read.</span>
+          <button className="btn sm" disabled={loading} onClick={loadAll}>
+            {loading ? 'Loading…' : 'Try again'}
+          </button>
+        </div>
+      )}
       <div className="table-wrap">
         <table className="data team-settings-table" aria-label="Riders’ training settings">
           <thead>
