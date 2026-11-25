@@ -69,6 +69,8 @@ export interface Activity {
   ssSecs?: number | null; // seconds in intervals.icu "sweet spot" band
   decoupling?: number | null; // aerobic decoupling Pw:HR (%)
   efficiencyFactor?: number | null; // NP / avg HR
+  /** context you logged for this ride (caffeine, stimulant, indoor no fan…) — see rideContext.ts */
+  context?: string[];
   rpe?: number | null; // 1..10
   feel?: number | null; // intervals.icu 1 (strong) .. 5 (weak)
   pairedEventId?: string | null;

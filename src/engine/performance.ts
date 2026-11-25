@@ -10,6 +10,7 @@
 //  * Best-effort progression (1/5/20 min) and aerobic decoupling, combined into a verdict.
 import { addDays, diffDays } from './dates';
 import { linearTrend, mean, ols, round, sd } from './stats';
+import { hrConfounders, RIDE_TAGS, RIDE_TAG_BY_KEY, type RideTag } from './rideContext';
 import type { Activity, AthleteProfile, ISODate, Wellness } from './types';
 
 export interface RidePoint {
@@ -23,6 +24,8 @@ export interface RidePoint {
   hours: number;
   ef: number; // NP / HR
   efAdj: number; // NP / conditions-standardised HR
+  /** ride context you logged (caffeine, stimulant, indoor no fan…) */
+  tags?: RideTag[];
 }
 
 export interface ConditionsModel {
@@ -35,6 +38,10 @@ export interface ConditionsModel {
   bpmPerHour: number;
   bpmPerWeek: number; // fitness drift at fixed power/conditions (negative = fitter)
   wattsPerMonthAtSameHr: number;
+  /** your personal heart-rate effect of each logged ride context, learned from your rides */
+  tagEffects?: { tag: RideTag; label: string; bpm: number; n: number }[];
+  /** rides left out because a logged context makes their heart rate unrepresentative */
+  excluded?: { n: number; tags: RideTag[] };
 }
 
 export interface FtpSource {
@@ -123,9 +130,26 @@ export function analyzePerformance(activities: Activity[], wellnessAll: Wellness
       hours: a.movingSec / 3600,
       ef: a.normalizedPower / a.avgHr,
       efAdj: a.normalizedPower / a.avgHr,
+      tags: (a.context ?? []) as RideTag[],
     });
   }
   points.sort((a, b) => a.date.localeCompare(b.date));
+
+  // ---------- ride context ----------
+  // Tags seen on enough rides (and missing from enough) are learned as personal bpm effects;
+  // strong confounders that can't be learned yet keep that ride out of the heart-rate model.
+  const learnTags = RIDE_TAGS.filter((d) => d.learn && points.filter((p) => p.tags!.includes(d.key)).length >= 4 && points.filter((p) => !p.tags!.includes(d.key)).length >= 4).map((d) => d.key);
+  const learned = new Set<RideTag>(learnTags);
+  const excludedTags = new Set<RideTag>();
+  let excludedN = 0;
+  for (let i = points.length - 1; i >= 0; i--) {
+    const bad = (points[i].tags ?? []).filter((t) => RIDE_TAG_BY_KEY[t]?.effect === 'strong' && !learned.has(t));
+    if (bad.length) {
+      bad.forEach((t) => excludedTags.add(t));
+      excludedN++;
+      points.splice(i, 1);
+    }
+  }
 
   // ---------- conditions model ----------
   let model: ConditionsModel | null = null;
@@ -135,7 +159,7 @@ export function analyzePerformance(activities: Activity[], wellnessAll: Wellness
     const useIndoor = indoorN >= 3 && points.length - indoorN >= 3;
     let useTemp = sd(points.map((p) => p.tempC)) >= 2;
     const fit = () => {
-      const cols = ['c', 'np', ...(useTemp ? ['temp'] : []), ...(useIndoor ? ['indoor'] : []), 'tsb', 'hours', 'weeks'];
+      const cols = ['c', 'np', ...(useTemp ? ['temp'] : []), ...(useIndoor ? ['indoor'] : []), 'tsb', 'hours', 'weeks', ...learnTags.map((t) => `tag:${t}`)];
       const X = points.map((p) => {
         const row: Record<string, number> = {
           c: 1,
@@ -145,6 +169,7 @@ export function analyzePerformance(activities: Activity[], wellnessAll: Wellness
           tsb: p.tsb,
           hours: p.hours - 1.5,
           weeks: diffDays(p.date, asOf) / 7,
+          ...Object.fromEntries(learnTags.map((t) => [`tag:${t}`, p.tags!.includes(t) ? 1 : 0])),
         };
         return cols.map((c) => row[c]);
       });
@@ -169,9 +194,12 @@ export function analyzePerformance(activities: Activity[], wellnessAll: Wellness
         bpmPerHour: round(res.b.hours, 1),
         bpmPerWeek: round(res.b.weeks, 2),
         wattsPerMonthAtSameHr: round((-res.b.weeks / res.b.np) * 4.35, 1),
+        tagEffects: learnTags.map((t) => ({ tag: t, label: RIDE_TAG_BY_KEY[t].short, bpm: round(res!.b[`tag:${t}`], 1), n: points.filter((p) => p.tags!.includes(t)).length })),
+        excluded: excludedN ? { n: excludedN, tags: [...excludedTags] } : undefined,
       };
       for (const p of points) {
-        const hrStd = p.hr - (beta.temp ?? 0) * (p.tempC - 15) - (beta.indoor ?? 0) * (p.indoor ? 1 : 0) - beta.tsb * p.tsb - beta.hours * (p.hours - 1.5);
+        const tagAdj = learnTags.reduce((acc, t) => acc + (p.tags!.includes(t) ? (beta![`tag:${t}`] ?? 0) : 0), 0);
+        const hrStd = p.hr - (beta.temp ?? 0) * (p.tempC - 15) - (beta.indoor ?? 0) * (p.indoor ? 1 : 0) - beta.tsb * p.tsb - beta.hours * (p.hours - 1.5) - tagAdj;
         p.efAdj = round(p.np / Math.max(60, hrStd), 3);
       }
     }
@@ -305,7 +333,7 @@ export function analyzePerformance(activities: Activity[], wellnessAll: Wellness
   }
   const dec = (from: number, to: number) => {
     const v = activities
-      .filter((a) => a.isRide && a.decoupling != null && a.movingSec >= 75 * 60 && (a.intensity ?? 1) <= 0.78 && diffDays(asOf, a.date) >= from && diffDays(asOf, a.date) <= to)
+      .filter((a) => a.isRide && a.decoupling != null && a.movingSec >= 75 * 60 && (a.intensity ?? 1) <= 0.78 && diffDays(asOf, a.date) >= from && diffDays(asOf, a.date) <= to && !hrConfounders(a).length)
       .map((a) => a.decoupling as number);
     return v.length >= 2 ? mean(v) : null;
   };

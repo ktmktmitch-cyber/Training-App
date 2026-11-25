@@ -1,3 +1,4 @@
+import { RideContextPicker } from './RideContextPicker';
 import { useMemo, useState } from 'react';
 import type { ComplianceDay } from '../engine/compliance';
 import { dowShort, fmtLong, fmtMinutes, fmtShort, fromISO } from '../engine/dates';
@@ -167,7 +168,7 @@ export function ComplianceStrip({
       <div className="card-head">
         <div className="stack" style={{ gap: 2 }}>
           <h2>Last 7 days</h2>
-          <span className="small ink2">Planned vs done. Tap a ride to tell the plan how it felt — that tunes your levels.</span>
+          <span className="small ink2">Planned vs done. Tap a ride to tell the plan how it felt (tunes your levels) and log context like caffeine or indoor without a fan (sharpens your heart-rate numbers).</span>
         </div>
       </div>
       <div className="tiles">
@@ -225,6 +226,12 @@ export function ComplianceStrip({
                 ))}
               </div>
               {a.rpe ? <span className="tiny muted">intervals.icu RPE {a.rpe}/10</span> : null}
+            </div>
+          ))}
+          {sel.done.map((a) => (
+            <div key={`ctx-${a.id}`}>
+              {sel.done.length > 1 && <span className="tiny muted">{a.name}</span>}
+              <RideContextPicker activityId={a.id} />
             </div>
           ))}
         </div>

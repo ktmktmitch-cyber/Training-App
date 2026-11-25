@@ -22,6 +22,7 @@ export interface SyncState {
   history?: Record<string, unknown>;
   journal?: Record<string, unknown>;
   scheduled?: Record<string, unknown>;
+  rideContext?: Record<string, unknown>;
 }
 
 export interface SyncDoc {
@@ -37,7 +38,7 @@ export interface SyncDoc {
 const LOCAL_ONLY = new Set(['connection', 'demo', 'cloudSync']);
 /** Settings groups merged one level deeper, so e.g. goal.races and goal.restWeeks merge independently. */
 const DEEP = new Set(['goal', 'strength', 'prefs']);
-const MAPS = ['weeks', 'checkins', 'feedback', 'history', 'journal', 'scheduled'] as const;
+const MAPS = ['weeks', 'checkins', 'feedback', 'history', 'journal', 'scheduled', 'rideContext'] as const;
 
 /** Flatten state into independently mergeable items. */
 export function flatten(s: SyncState): Record<string, string> {
