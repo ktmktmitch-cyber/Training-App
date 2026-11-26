@@ -203,12 +203,12 @@ export function SeasonPage() {
           {weeks.map((w) => (
             <button
               key={w.start}
-              className={`tl-week ${w.start === currentMonday ? 'current' : ''} ${w.userRest ? 'mine' : ''}`}
-              title={`${fmtShort(w.start)} · ${PHASE_LABELS[w.phase]} ${w.userAway ? '(away)' : w.userRest ? '(your rest week)' : w.weekType !== 'load' ? `(${w.weekType})` : ''} · ${Math.round(w.volumeFactor * 100)}% volume${canChooseRest(w) ? ' — tap to ' + (w.userRest ? 'undo' : 'make it a rest week') : ''}`}
-              aria-label={`Week of ${fmtShort(w.start)}, ${w.userAway ? 'away' : w.userRest ? 'your rest week' : w.weekType}`}
+              className={`tl-week ${w.start === currentMonday ? 'current' : ''} ${w.userRest ? 'mine' : ''} ${w.camp ? 'camp' : ''} ${w.postCamp ? 'post-camp' : ''}`}
+              title={`${fmtShort(w.start)} · ${PHASE_LABELS[w.phase]} ${w.camp ? `(⛺ ${w.camp.name}: ${w.camp.days} camp days, ~${Math.round(w.camp.minutes / 60)} h)` : w.postCamp ? `(recovery after ${w.postCamp})` : w.userAway ? '(away)' : w.userRest ? '(your rest week)' : w.weekType !== 'load' ? `(${w.weekType})` : ''} · ${Math.round(w.volumeFactor * 100)}% volume${canChooseRest(w) ? ' — tap to ' + (w.userRest ? 'undo' : 'make it a rest week') : ''}`}
+              aria-label={`Week of ${fmtShort(w.start)}, ${w.camp ? `training camp ${w.camp.name}` : w.postCamp ? 'recovery after camp' : w.userAway ? 'away' : w.userRest ? 'your rest week' : w.weekType}`}
               disabled={!canChooseRest(w)}
               onClick={() => toggleRestWeek(app, w.start)}
-              style={{ height: `${Math.max(4, Math.round(w.volumeFactor * 100))}%`, background: PHASE_COLOR[w.phase], opacity: w.weekType === 'recovery' ? 0.45 : 1 }}
+              style={{ height: `${w.camp ? 100 : Math.max(4, Math.round(w.volumeFactor * 100))}%`, background: PHASE_COLOR[w.phase], opacity: w.weekType === 'recovery' ? 0.45 : 1 }}
             />
           ))}
         </div>
@@ -282,7 +282,7 @@ export function SeasonPage() {
                   </td>
                   <td>
                     <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-                      {w.userAway ? 'away' : w.userRest ? 'rest (yours)' : w.weekType === 'hit_block' ? 'HIT block' : w.weekType}
+                      {w.camp ? `⛺ camp · ${w.camp.name} (${w.camp.days} d, ~${Math.round(w.camp.minutes / 60)} h)` : w.postCamp ? 'recovery (after camp)' : w.userAway ? 'away' : w.userRest ? 'rest (yours)' : w.weekType === 'hit_block' ? 'HIT block' : w.weekType}
                       {canChooseRest(w) && (
                         <button className="btn sm ghost" onClick={() => toggleRestWeek(app, w.start)} title={w.userRest ? 'Undo this rest week' : 'Make this a rest week (the loading cycle restarts after it)'}>
                           {w.userRest ? 'Undo' : 'Rest'}

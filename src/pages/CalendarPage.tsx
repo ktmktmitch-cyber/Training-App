@@ -138,7 +138,10 @@ export function CalendarPage() {
     return Object.fromEntries(computeCompliance(past, asOf, events, activities, who ? {} : app.snapshots).map((c) => [c.date, c]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [first, last, asOf, events, activities, app.snapshots, who]);
-  const planByDay = useMemo(() => (who ? {} : Object.fromEntries(plan.days.map((d) => [d.date, d]))) as Record<ISODate, PlannedDay>, [plan.days, who]);
+  const planByDay = useMemo(() => (who ? {} : Object.fromEntries([...(app.nextPlan?.days ?? []), ...plan.days].map((d) => [d.date, d]))) as Record<ISODate, PlannedDay>, [plan.days, app.nextPlan, who]);
+  // Training camps (shown on every day of the camp, even beyond the planned days)
+  const camps = who ? [] : (app.settings.goal.camps ?? []);
+  const campOn = (d: ISODate) => camps.find((c) => d >= c.start && d <= c.end) ?? null;
   const actsByDay = useMemo(() => {
     const m: Record<ISODate, Activity[]> = {};
     for (const a of activities) (m[a.date] ??= []).push(a);
@@ -244,8 +247,10 @@ export function CalendarPage() {
                         {a.tss ? <span className="muted"> · {Math.round(a.tss)}</span> : null}
                       </span>
                     ))}
+                    {campOn(d) && !p?.ride && !acts.length && <span className="cal-item plan camp" title={campOn(d)!.name}>⛺ {campOn(d)!.name}</span>}
                     {p?.ride && !acts.length && (
-                      <span className={`cal-item plan ${p.ride.why[0]?.startsWith('From your coach') ? 'coach' : ''}`} title={p.ride.why[0]?.startsWith('From your coach') ? 'Scheduled by your coach' : undefined}>
+                      <span className={`cal-item plan ${p.ride.why[0]?.startsWith('From your coach') ? 'coach' : ''} ${p.ride.fixed === 'camp' ? 'camp' : ''}`} title={p.ride.fixed === 'camp' ? campOn(d)?.name : p.ride.why[0]?.startsWith('From your coach') ? 'Scheduled by your coach' : undefined}>
+                        {p.ride.fixed === 'camp' ? '⛺ ' : ''}
                         {p.ride.name} <span className="muted">· {fmtMinutes(p.ride.durationMin)}</span>
                       </span>
                     )}
@@ -269,7 +274,7 @@ export function CalendarPage() {
                 {otherOff && <span className="tiny">{otherOff}</span>}
                 {mw && (
                   <span className="tiny">
-                    {mw.userRest ? 'Rest (yours)' : mw.weekType === 'recovery' ? 'Recovery' : mw.weekType === 'hit_block' ? 'HIT block' : PHASE_LABELS[mw.phase]}
+                    {mw.camp ? `⛺ ${mw.camp.name}` : mw.postCamp ? 'Recovery (after camp)' : mw.userRest ? 'Rest (yours)' : mw.weekType === 'recovery' ? 'Recovery' : mw.weekType === 'hit_block' ? 'HIT block' : PHASE_LABELS[mw.phase]}
                   </span>
                 )}
                 {hrs > 0 && (

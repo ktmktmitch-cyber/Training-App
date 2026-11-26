@@ -14,6 +14,8 @@ import type {
   StrengthPhase,
   WeekType,
 } from './types';
+import type { TrainingCamp } from './types';
+import { campMinutes, campSession } from './camps';
 import { eventProfile } from './goals';
 
 export const EVENT_LABELS: Record<EventType, string> = {
@@ -422,13 +424,71 @@ export function buildMacroPlan(goal: GoalSettings, events: CalendarEvent[], asOf
 
   const away = [...(goal.awayWeeks ?? []), ...awayWeeksFromRanges(goal.offRanges)];
   applyRestWeeks(weeks, [...(goal.restWeeks ?? []), ...away], cycleLen, segs[0]?.phase ?? null, away);
+  applyCamps(weeks, goal.camps ?? [], goal.typicalWeeklyHours || 8, cycleLen, segs[0]?.phase ?? null);
+  for (const c of (goal.camps ?? []).filter((x) => diffDays(x.end, asOf) >= 0))
+    summary.push(`${c.name} (${c.start} → ${c.end}): camp weeks are big Zone 2 loading weeks; a planned recovery week just before is moved, and the week after is a recovery week so the gains land — the loading cycle restarts from there.`);
   return { weeks, goalDate, taperDays, summary };
+}
+
+/**
+ * Training camps reshape the season around them:
+ *  * camp weeks become loading weeks (a camp is the load — a scheduled recovery week there is cancelled);
+ *  * a scheduled recovery week right before the camp becomes a loading week (two easy days before the
+ *    camp are enough to arrive fresh; a whole easy week would just cost fitness);
+ *  * the week after the camp is a recovery week (supercompensation happens after the block), and the
+ *    loading cycle restarts from it.
+ */
+export function applyCamps(weeks: MacroWeek[], camps: TrainingCamp[], typicalHours: number, cycleLen: number, firstPhase: Phase | null): void {
+  for (const c of camps) {
+    const idx = weeks.map((w, i) => (diffDays(c.end, w.start) >= 0 && diffDays(addDays(w.start, 6), c.start) >= 0 ? i : -1)).filter((i) => i >= 0);
+    if (!idx.length) continue;
+    const perDay = campMinutes(c, typicalHours);
+    const n = diffDays(c.end, c.start) + 1;
+    for (const i of idx) {
+      const w = weeks[i];
+      let days = 0;
+      let minutes = 0;
+      for (let k = 0; k < 7; k++) {
+        const d = addDays(w.start, k);
+        if (d < c.start || d > c.end) continue;
+        days++;
+        minutes += campSession({ name: c.name, index: diffDays(d, c.start), length: n, minutes: perDay }).minutes;
+      }
+      weeks[i] = {
+        ...w,
+        weekType: w.weekType === 'recovery' || w.weekType === 'hit_block' ? 'load' : w.weekType,
+        userRest: undefined,
+        userAway: undefined,
+        loadStep: Math.max(1, w.loadStep),
+        volumeFactor: Math.max(w.volumeFactor, 1),
+        estTssPerHour: 52,
+        strengthPhase: 'DL',
+        camp: { name: c.name, days, minutes },
+        focus: `Training camp — ${c.name}: long Zone 2 days, every 4th day easier, fuel 60-90 g carbs/h`,
+      };
+    }
+    // a scheduled recovery week right before the camp → loading week
+    const before = idx[0] - 1;
+    if (before >= 0 && weeks[before].weekType === 'recovery' && !weeks[before].userRest && !weeks[before].camp) {
+      const b = weeks[before];
+      const arr = VOLUME[b.phase] ?? [0.9];
+      weeks[before] = { ...b, weekType: 'load', loadStep: Math.max(1, b.loadStep), volumeFactor: arr[Math.min(arr.length - 1, 1)], estTssPerHour: TSS_PER_HOUR[b.phase], strengthPhase: strengthPhaseFor(b.phase, 'load', b.weekInPhase, b.phaseWeeks, b.phase === firstPhase), focus: `${FOCUS[b.phase]} (recovery moved to after ${c.name} — arrive fit, with two easy days before)` };
+    }
+    // recovery week after the camp (unless the recovery days fit inside the camp's last week)
+    const post = mondayOf(addDays(c.end, 3));
+    const pi = weeks.findIndex((w) => w.start === post);
+    if (pi < 0 || weeks[pi].camp) continue;
+    applyRestWeeks(weeks, [post], cycleLen, firstPhase);
+    if (weeks[pi].weekType === 'recovery')
+      weeks[pi] = { ...weeks[pi], userRest: undefined, postCamp: c.name, focus: `Recovery after ${c.name} — easy riding while the camp’s fitness gains land; normal training resumes after` };
+  }
 }
 
 /** Phases where a chosen rest week is allowed (not peak/taper/race weeks). */
 const RESTABLE: Phase[] = ['prep', 'base', 'accumulation', 'intensity', 'build', 'volume', 'transmutation', 'maintain', 'transition'];
 
 export function canChooseRest(w: MacroWeek): boolean {
+  if (w.camp) return false; // a camp week is a training week
   return Boolean(w.userRest) || (RESTABLE.includes(w.phase) && w.weekType !== 'recovery' && !w.races.some((r) => r.category === 'RACE_A'));
 }
 

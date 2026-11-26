@@ -1564,3 +1564,7 @@ button.tl-week:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .day.past .past-head { cursor: default; align-items: flex-start; }
 .day.past.missed .dom { color: var(--muted); }
 .week-next { margin: 18px 0 8px; font-size: 1.05rem; }
+.tl-week.camp { position: relative; outline: 2px solid var(--coach); outline-offset: -2px; }
+.tl-week.camp::after { content: '⛺'; position: absolute; top: 3px; left: 50%; transform: translateX(-50%); font-size: 10px; line-height: 1; }
+.tl-week.post-camp { outline: 2px dashed var(--coach); outline-offset: -2px; }
+.cal-item.camp { border-left-color: var(--coach) !important; background: color-mix(in srgb, var(--coach) 10%, transparent); }

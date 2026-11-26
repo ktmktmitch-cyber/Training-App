@@ -397,6 +397,10 @@ export interface MacroWeek {
   estTssPerHour: number;
   userRest?: boolean; // a rest week you chose (vs one the plan scheduled)
   userAway?: boolean; // a week you can't train at all
+  /** a training camp falls in this week: its name, camp days this week and total camp riding (min) */
+  camp?: { name: string; days: number; minutes: number };
+  /** the recovery week that follows a training camp */
+  postCamp?: string;
 }
 
 export interface MacroPlan {

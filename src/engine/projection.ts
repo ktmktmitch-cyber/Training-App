@@ -27,11 +27,13 @@ export function projectSeason(
   const shape = [0.05, 0.17, 0.12, 0.17, 0.06, 0.28, 0.15];
   for (const w of plan.weeks) {
     if (diffDays(addDays(w.start, 6), from) < 0) continue;
-    const weekTss = hoursPerWeek * w.volumeFactor * w.estTssPerHour;
+    // Camp weeks: the camp's own riding (mostly Zone 2, ~52 TSS/h) plus easy days around it
+    const weekTss = w.camp ? (w.camp.minutes / 60) * 52 + hoursPerWeek * ((7 - w.camp.days) / 7) * 0.5 * 45 : hoursPerWeek * w.volumeFactor * w.estTssPerHour;
+    const campShare = w.camp ? 1 / 7 : 0;
     for (let i = 0; i < 7; i++) {
       const d = addDays(w.start, i);
       if (diffDays(d, from) < 0) continue;
-      let load = weekTss * shape[i];
+      let load = w.camp ? weekTss * campShare : weekTss * shape[i];
       if (plan.goalDate) {
         const toRace = diffDays(plan.goalDate, d);
         if (toRace === 0) load = 200;
