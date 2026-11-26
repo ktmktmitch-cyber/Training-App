@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { addDays, diffDays, dow, range, today } from '../engine/dates';
+import { addDays, diffDays, dow, mondayOf, range, today } from '../engine/dates';
 import { computeCompliance, missedKeySessions, type ComplianceDay, type PlanSnapshot } from '../engine/compliance';
 import { allExternalIdsFor, dayToIcuEvents, ICU_TYPE, workoutDescription, EXTERNAL_PREFIX } from '../engine/icuExport';
 import { affectedMornings, tagImpacts, type Journal, type MorningEffect, type TagImpact, type TagKey } from '../engine/journal';
@@ -83,17 +83,63 @@ export interface DataState {
 
 export type { ServerInfo } from './auth';
 
-/** Overlay day settings saved in any earlier week that overlaps this 7-day window (newest wins). */
-export function carryDays(weeks: Record<ISODate, WeekConfig>, start: ISODate, into: WeekConfig): WeekConfig {
-  const dates = new Set(range(start, 7));
-  const days = { ...into.days };
-  const older = Object.values(weeks)
-    .filter((w) => w.startDate < start && diffDays(start, w.startDate) < 7)
-    .sort((a, b) => a.startDate.localeCompare(b.startDate));
-  for (const w of older)
-    for (const [d, c] of Object.entries(w.days))
-      if (dates.has(d) && !(d in into.days && weeks[start])) days[d] = c;
-  return { ...into, days };
+// ---------- Availability ----------
+// Availability is kept per calendar week (Mon–Sun, keyed by its Monday): its hours and any day you set.
+// Older versions saved rolling 7-day windows under other start dates; those are still read (newest
+// first) for any day a calendar week doesn't have, so nothing set earlier is lost.
+export interface UsualWeek {
+  hours: number;
+  days: Partial<Record<number, DayConfig>>;
+}
+
+/** The day setting for a date: your calendar-week entry, else an older rolling-window entry, else your usual week. */
+export function dayAt(weeks: Record<ISODate, WeekConfig>, d: ISODate, usual: UsualWeek): DayConfig | undefined {
+  const cal = weeks[mondayOf(d)]?.days[d];
+  if (cal) return cal;
+  const legacy = Object.values(weeks)
+    .filter((w) => w.startDate !== mondayOf(w.startDate) && w.startDate <= d && diffDays(d, w.startDate) < 7 && w.days[d])
+    .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+  if (legacy) return legacy.days[d];
+  const u = usual.days[dow(d)];
+  return u ? { ...u } : undefined;
+}
+
+export function weekHoursAt(weeks: Record<ISODate, WeekConfig>, monday: ISODate, usual: UsualWeek): number {
+  if (weeks[monday]?.hours != null) return weeks[monday].hours;
+  const legacy = Object.values(weeks)
+    .filter((w) => w.startDate !== mondayOf(w.startDate) && Math.abs(diffDays(w.startDate, monday)) < 7)
+    .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+  return legacy?.hours ?? usual.hours;
+}
+
+/** A window of `span` days from `start`, with hours as the day-weighted average of the calendar weeks it covers. */
+export function buildWindow(weeks: Record<ISODate, WeekConfig>, start: ISODate, span: number, usual: UsualWeek): WeekConfig {
+  const days: Record<ISODate, DayConfig> = {};
+  const dates = range(start, span);
+  for (const d of dates) {
+    const c = dayAt(weeks, d, usual);
+    if (c) days[d] = c;
+  }
+  const first7 = dates.slice(0, 7);
+  const hours = Math.round((first7.reduce((a, d) => a + weekHoursAt(weeks, mondayOf(d), usual), 0) / first7.length) * 2) / 2;
+  return { startDate: start, hours, days, span };
+}
+
+/** Save a window/calendar week back as calendar weeks. Days missing from `w.days` go back to your usual week. */
+export function writeWindow(weeks: Record<ISODate, WeekConfig>, w: WeekConfig, usual: UsualWeek, setHours: boolean): Record<ISODate, WeekConfig> {
+  const out = { ...weeks };
+  const touch = (m: ISODate) => (out[m] = out[m] ? { ...out[m], days: { ...out[m].days } } : { startDate: m, hours: weekHoursAt(weeks, m, usual), days: {} });
+  for (const d of range(w.startDate, w.span ?? 7)) {
+    const m = mondayOf(d);
+    touch(m);
+    const c = w.days[d] ?? (usual.days[dow(d)] ? { ...usual.days[dow(d)]! } : { status: 'available' as const, maxMinutes: null });
+    out[m].days[d] = c;
+  }
+  if (setHours) {
+    touch(mondayOf(w.startDate));
+    out[mondayOf(w.startDate)].hours = w.hours;
+  }
+  return out;
 }
 
 /** localStorage keys, namespaced per signed-in user ('local' keeps the original single-user keys). */
@@ -183,7 +229,11 @@ interface Ctx {
   week: WeekConfig;
   setWeek: (w: WeekConfig) => void;
   saveAsUsual: (w: WeekConfig) => void;
-  resetWeek: () => void;
+  resetWeek: (monday?: ISODate) => void;
+  /** a calendar week (Mon–Sun) with its hours and day settings, for editing */
+  calWeek: (monday: ISODate) => WeekConfig;
+  /** the plan for the 7 days after the current plan (so all of next week is visible) */
+  nextPlan: WeekPlan | null;
   checkIn: CheckIn | null;
   setCheckIn: (c: CheckIn | null) => void;
   profile: AthleteProfile | null;
@@ -523,45 +573,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // The week always starts today (today's workout is part of the plan and goes to intervals.icu/Garmin)
   const startDate = asOf;
 
-  const makeWeek = useCallback(
-    (start: ISODate): WeekConfig => {
-      const days: Record<ISODate, DayConfig> = {};
-      for (const d of range(start, 7)) {
-        const u = settings.usualDays[dow(d)];
-        if (u) days[d] = { ...u };
-      }
-      return { startDate: start, hours: settings.usualHours, days };
-    },
-    [settings.usualDays, settings.usualHours],
-  );
-
-  // Day changes (picks, moves, can't-train days…) belong to their date, not to the week they were made in:
-  // carry them over from earlier rolling weeks so they survive into tomorrow's 7-day window.
-  const baseWeek = useMemo(() => {
-    if (weeks[startDate]) return carryDays(weeks, startDate, weeks[startDate]);
-    const base = makeWeek(startDate);
-    const recent = Object.values(weeks)
-      .filter((w) => w.startDate < startDate && diffDays(startDate, w.startDate) < 7)
-      .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
-    return carryDays(weeks, startDate, recent ? { ...base, hours: recent.hours } : base);
-  }, [weeks, startDate, makeWeek]);
+  const usual = useMemo<UsualWeek>(() => ({ hours: settings.usualHours, days: settings.usualDays }), [settings.usualHours, settings.usualDays]);
+  /** A calendar week (Mon–Sun) as you'd edit it. */
+  const calWeek = useCallback((monday: ISODate) => ({ ...buildWindow(weeks, monday, 7, usual), hours: weekHoursAt(weeks, monday, usual) }), [weeks, usual]);
+  // The planning window: today through the end of next week (planned as two 7-day windows)
+  const horizon = 7 + diffDays(addDays(mondayOf(startDate), 13), addDays(startDate, 6));
+  const baseWeek = useMemo(() => buildWindow(weeks, startDate, Math.max(7, horizon), usual), [weeks, startDate, horizon, usual]);
   const week = useMemo<WeekConfig>(() => {
     const days = { ...baseWeek.days };
-    for (const d of range(startDate, 7)) {
+    for (const d of range(startDate, baseWeek.span ?? 7)) {
       const sc = scheduled[d];
       if (sc && (!days[d] || days[d].status === 'available'))
         days[d] = { ...(days[d] ?? { maxMinutes: null }), status: 'pinned', pinned: { workoutId: sc.workoutId, durationMin: sc.durationMin, level: sc.level } };
     }
     return { ...baseWeek, days };
   }, [baseWeek, scheduled, startDate]);
-  const setWeek = useCallback((w: WeekConfig) => setWeeks((all) => ({ ...all, [w.startDate]: w })), []);
-  const resetWeek = useCallback(() => setWeeks((all) => {
-    const n = { ...all };
-    delete n[startDate];
-    // also drop changes carried over from the last few days' windows
-    for (const k of Object.keys(n)) if (k < startDate && diffDays(startDate, k) < 7) delete n[k];
-    return n;
-  }), [startDate]);
+  /** Save day changes (from the week or a calendar week). Hours are saved only for a Monday-start calendar week. */
+  const setWeek = useCallback((w: WeekConfig) => setWeeks((all) => writeWindow(all, w, usual, w.startDate === mondayOf(w.startDate))), [usual]);
+  /** Back to your usual week for the calendar week starting `monday` (default: this week). */
+  const resetWeek = useCallback(
+    (monday?: ISODate) =>
+      setWeeks((all) => {
+        const m = monday ?? mondayOf(startDate);
+        const n = { ...all };
+        delete n[m];
+        // and any older rolling-window entries for those days
+        for (const k of Object.keys(n)) if (k !== mondayOf(k) && diffDays(addDays(m, 6), k) >= 0 && diffDays(k, m) > -7) delete n[k];
+        return n;
+      }),
+    [startDate],
+  );
   const saveAsUsual = useCallback(
     (w: WeekConfig) => {
       const usual: Partial<Record<number, DayConfig>> = {};
@@ -726,6 +767,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const plan = useMemo(() => applySecondSessions(sportsPlan, (d) => week.days[d], effProfile?.weightKg ?? null, readiness), [sportsPlan, week.days, effProfile, readiness]);
 
+  // The following 7 days, so the whole of next week is always visible (and editable). Today's recovery
+  // markers don't reach that far, so it's planned from neutral readiness; it re-plans as the days come.
+  const nextPlan = useMemo(() => {
+    const start2 = addDays(startDate, 7);
+    if (!effProfile || diffDays(addDays(mondayOf(startDate), 13), start2) < 0) return null;
+    const neutral: Readiness = { ...readiness, volumeModifier: 1, maxKeySessionsDelta: 0, firstDayEasy: false, easyDays: 0, flags: readiness.flags.filter((f) => f.id !== 'sick'), status: readiness.status === 'unknown' ? 'unknown' : 'green' };
+    const w2: WeekConfig = { ...week, startDate: start2, span: 7, hours: buildWindow(weeks, start2, 7, usual).hours };
+    const input2 = { ...planInput, startDate: start2, week: sport === 'run_bike' || sport === 'triathlon' ? { ...w2, hours: bikeHoursFor(sport, w2.hours, settings.goal.eventType) } : w2, readiness: neutral, carryOver: [] };
+    const p2 = planWeek(input2);
+    const sp = applySports({ plan: p2, sport, hours: w2.hours, macroWeek: p2.macroWeek, readiness: neutral, activities: data.activities, asOf, weightKg: effProfile?.weightKg ?? null, minRestDays: settings.prefs.minRestDays, event: settings.goal.eventType });
+    return applySecondSessions(sp, (d) => week.days[d], effProfile?.weightKg ?? null, neutral);
+  }, [startDate, effProfile, readiness, week, weeks, usual, planInput, sport, settings.goal.eventType, data.activities, asOf, settings.prefs.minRestDays]);
+
   // Remember what was planned (today onward) so compliance works even without pushing to intervals.icu
   useEffect(() => {
     if (settings.demo) return;
@@ -846,6 +900,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setWeek,
     saveAsUsual,
     resetWeek,
+    calWeek,
+    nextPlan,
     checkIn,
     setCheckIn,
     profile: effProfile,

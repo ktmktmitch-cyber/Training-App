@@ -7,6 +7,7 @@ import { Field, Seg } from '../components/ui';
 import { toggleRestWeek } from '../lib/restWeeks';
 import { RacesCard } from '../components/RacesCard';
 import { WeeksOffCard } from '../components/WeeksOffCard';
+import { CampsCard } from '../components/CampsCard';
 import { useApp } from '../lib/store';
 import { eventProfile, RUN_EVENTS, TRI_EVENTS } from '../engine/goals';
 import { SPORT_LABEL } from '../engine/multisport';
@@ -76,6 +77,7 @@ export function SeasonPage() {
       <h1>Season plan</h1>
       <RacesCard />
       <WeeksOffCard />
+      <CampsCard />
       <div className="card stack-lg">
         <h2>Goal</h2>
         <div className="grid-3">

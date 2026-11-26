@@ -17,7 +17,7 @@ import { useApp } from '../lib/store';
 export function WeekPage() {
   const app = useApp();
   const { plan, week, settings } = app;
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<'this' | 'next' | null>(null);
   const [pushing, setPushing] = useState(false);
   const [toast, showToast] = useToast();
 
@@ -62,7 +62,12 @@ export function WeekPage() {
   const sunday = addDays(monday, 6);
   const pastDays = range(monday, Math.max(0, diffDays(app.asOf, monday)));
   const thisWeek = plan.days.filter((d) => d.date <= sunday);
-  const nextWeek = plan.days.filter((d) => d.date > sunday);
+  // All of next week (Mon–Sun): from the current plan where it reaches, then from the following 7 days' plan
+  const nextMonday = addDays(sunday, 1);
+  const nextWeek = range(nextMonday, 7)
+    .map((date) => plan.days.find((d) => d.date === date) ?? app.nextPlan?.days.find((d) => d.date === date))
+    .filter((d): d is (typeof plan.days)[number] => !!d);
+  const editWeek = editing === 'next' ? app.calWeek(nextMonday) : app.calWeek(monday);
   const renderDay = (d: (typeof plan.days)[number]) => (
           <DayCard
       key={d.date}
@@ -198,7 +203,7 @@ export function WeekPage() {
           <div className="stack" style={{ gap: 2 }}>
             <h2>Availability</h2>
             <span className="small ink2">
-              {week.hours} h available
+              {app.calWeek(monday).hours} h this week · {app.calWeek(nextMonday).hours} h next week
               {blocked.length ? ` · can’t train ${blocked.join(', ')}` : ''}
               {groups.length ? ` · group ride ${groups.join(', ')}` : ''}
             </span>
@@ -217,12 +222,31 @@ export function WeekPage() {
             >
               Edit usual week
             </a>
-            <button className="btn sm" onClick={() => setEditing((e) => !e)}>
-              {editing ? 'Done' : 'Edit this week'}
+            <button className={`btn sm ${editing === 'this' ? 'primary' : ''}`} onClick={() => setEditing((e) => (e === 'this' ? null : 'this'))}>
+              {editing === 'this' ? 'Done' : 'Edit this week'}
+            </button>
+            <button className={`btn sm ${editing === 'next' ? 'primary' : ''}`} onClick={() => setEditing((e) => (e === 'next' ? null : 'next'))}>
+              {editing === 'next' ? 'Done' : 'Edit next week'}
             </button>
           </div>
         </div>
-        {editing && <WeekSetup week={week} onChange={app.setWeek} onSaveUsual={() => { app.saveAsUsual(week); showToast('Saved as your usual week.'); }} onResetUsual={app.resetWeek} />}
+        {editing && (
+          <>
+            <p className="tiny muted" style={{ margin: '0 0 8px' }}>
+              {editing === 'next' ? `Next week · ${fmtShort(nextMonday)} – ${fmtShort(addDays(nextMonday, 6))}` : `This week · ${fmtShort(monday)} – ${fmtShort(sunday)}`}
+            </p>
+            <WeekSetup
+              key={editing}
+              week={editWeek}
+              onChange={app.setWeek}
+              onSaveUsual={() => {
+                app.saveAsUsual(editWeek);
+                showToast('Saved as your usual week.');
+              }}
+              onResetUsual={() => app.resetWeek(editing === 'next' ? nextMonday : monday)}
+            />
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -274,8 +298,9 @@ export function WeekPage() {
       {nextWeek.length > 0 && (
         <>
           <h2 className="week-next">
-            Next week · {fmtShort(addDays(sunday, 1))} – {fmtShort(addDays(sunday, 7))}
+            Next week · {fmtShort(nextMonday)} – {fmtShort(addDays(nextMonday, 6))}
           </h2>
+          {nextWeek.some((d) => !plan.days.includes(d)) && <p className="tiny muted" style={{ margin: '-4px 0 8px' }}>The later days are planned ahead from your usual recovery; they adjust to your readiness as they get closer.</p>}
           <div className="days">{nextWeek.map((d) => renderDay(d))}</div>
         </>
       )}

@@ -18,6 +18,7 @@ import { longRideCap, weekProfile, type WeekProfile } from './profiles';
 import { macroWeekFor, PHASE_LABELS } from './periodization';
 import { projectLoad, round } from './stats';
 import { planStrength } from './strength';
+import type { TrainingCamp } from './types';
 import type {
   AthleteProfile,
   CalendarEvent,
@@ -88,7 +89,7 @@ export function parseCoachId(externalId: string | null | undefined): { templateI
   return m && WORKOUT_BY_ID[m[1]] ? { templateId: m[1], level: m[2] != null ? Number(m[2]) : null } : null;
 }
 
-export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: CalendarEvent[], goalDate: ISODate | null): DayConfig {
+export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: CalendarEvent[], goalDate: ISODate | null, campDay?: (d: ISODate) => DayConfig['camp'] | null): DayConfig {
   const user = week.days[date];
   if (user && user.status !== 'available') return user;
   const base: DayConfig = user ?? { status: 'available', maxMinutes: null };
@@ -106,7 +107,42 @@ export function effectiveDayConfig(date: ISODate, week: WeekConfig, events: Cale
     return { ...base, status: 'scheduled', scheduled: { name: cal.name, durationMin: cal.plannedSec ? Math.round(cal.plannedSec / 60) : 60, tss: cal.plannedTss ?? null, description: cal.description ?? null, type: cal.type ?? null, templateId: coach?.templateId ?? null, level: coach?.level ?? null, externalId: cal.externalId ?? null } };
   }
   if (evs.some((e) => ['SICK', 'INJURED', 'HOLIDAY'].includes(e.category))) return { ...base, status: 'off' };
+  const camp = campDay?.(date);
+  if (camp) return { ...base, status: 'camp', camp };
   return base;
+}
+
+// ---------- Training camps ----------
+// A base camp is a short block of much higher volume, almost all Zone 2 (Seiler; block-periodisation
+// studies, e.g. Rønnestad 2014). Volume roughly doubles your usual week; every 4th day is easier so
+// the block can be absorbed; one tempo day mid-camp and short sprints keep some top end. Arrive
+// fresh (two easy days before) and absorb it afterwards (rest, then ~4 easy days) — fitness gains from
+// a camp show up after the recovery, not during it.
+export function campMinutes(c: TrainingCamp, weeklyHours: number): number {
+  if (c.hoursPerDay) return Math.round(c.hoursPerDay * 60);
+  return Math.round(Math.max(150, Math.min(300, weeklyHours * 60 * 0.33)) / 15) * 15;
+}
+
+export function campDayOf(camps: TrainingCamp[] | undefined, weeklyHours: number): (d: ISODate) => DayConfig['camp'] | null {
+  return (d) => {
+    const c = (camps ?? []).find((x) => d >= x.start && d <= x.end);
+    if (!c) return null;
+    return { name: c.name, index: diffDays(d, c.start), length: diffDays(c.end, c.start) + 1, minutes: campMinutes(c, weeklyHours) };
+  };
+}
+
+/** What to ride on a given camp day. */
+export function campSession(cp: NonNullable<DayConfig['camp']>): { id: string; minutes: number; why: string } {
+  const { index: i, length: n, minutes } = cp;
+  const r5 = (x: number) => Math.round(x / 5) * 5;
+  // one tempo day around the middle, never on an easier day
+  const mid = (Math.floor(n / 2) + 1) % 4 === 0 ? Math.floor(n / 2) - 1 : Math.floor(n / 2);
+  if (n > 2 && i === n - 1) return { id: 'endurance', minutes: r5(minutes * 0.55), why: 'Last camp day — shorter, easy Zone 2 (travel day for most).' };
+  if ((i + 1) % 4 === 0) return { id: 'endurance', minutes: r5(minutes * 0.55), why: 'Easier camp day — short and easy so the block can be absorbed.' };
+  if (i === 0) return { id: 'endurance', minutes: r5(minutes * 0.75), why: 'First camp day — settle in with steady Zone 2.' };
+  if (n >= 5 && i === mid) return { id: 'end_tempo', minutes, why: 'Mid-camp: Zone 2 with tempo blocks — aerobic strength without an interval day.' };
+  if (i % 4 === 1) return { id: 'end_sprints', minutes, why: 'Long Zone 2 with a few short sprints to keep some top end.' };
+  return { id: 'endurance', minutes, why: 'Long, steady Zone 2 — the heart of a base camp. Fuel 60-90 g carbs/h.' };
 }
 
 function raceIf(min: number): number {
@@ -265,7 +301,7 @@ export function planWeek(input: PlanInput): WeekPlan {
     summary: [],
   };
   for (const d of days) {
-    ctx.cfg[d] = effectiveDayConfig(d, week, input.events, macro.goalDate);
+    ctx.cfg[d] = effectiveDayConfig(d, week, input.events, macro.goalDate, campDayOf(goal.camps, week.hours));
     ctx.cap[d] = ctx.cfg[d].maxMinutes ?? defaultDayCap(d, week.hours);
     ctx.rides[d] = null;
     ctx.notes[d] = [];
@@ -344,6 +380,11 @@ export function planWeek(input: PlanInput): WeekPlan {
       ctx.rides[d] = w;
       ctx.locked.add(d);
       if (w.key) fixedHard++;
+    } else if (c.status === 'camp' && c.camp) {
+      const sess = campSession(c.camp);
+      const w = makeWorkout(getTemplate(sess.id), sess.minutes, 0, ctx, [`${c.camp.name} · day ${c.camp.index + 1} of ${c.camp.length}. ${sess.why}`], { fixed: 'camp' });
+      ctx.rides[d] = w;
+      ctx.locked.add(d);
     } else if (c.status === 'pinned' && c.pinned && WORKOUT_BY_ID[c.pinned.workoutId]) {
       const t = getTemplate(c.pinned.workoutId);
       const lvl = c.pinned.level ?? levelFor(t, ctx, c.pinned.durationMin);
@@ -383,6 +424,33 @@ export function planWeek(input: PlanInput): WeekPlan {
       ctx.locked.add(d);
       fixedHard++;
     }
+  }
+
+  // ---------- 1b. around training camps: arrive fresh, absorb it afterwards ----------
+  for (const camp of goal.camps ?? []) {
+    const free = (d: ISODate) => days.includes(d) && !ctx.locked.has(d) && ctx.cfg[d].status === 'available';
+    const set = (d: ISODate, id: string | null, min: number, why: string) => {
+      if (!free(d)) return;
+      ctx.locked.add(d);
+      ctx.cfg[d] = { ...ctx.cfg[d], noLift: true }; // no lifting while arriving fresh or absorbing the camp
+      if (id) ctx.rides[d] = makeWorkout(getTemplate(id), Math.min(min, ctx.cap[d]), 0, ctx, [why]);
+      else {
+        ctx.rest.add(d);
+        ctx.notes[d].push(why);
+      }
+    };
+    set(addDays(camp.start, -2), 'endurance', 60, `Easy before ${camp.name} — arrive fresh for the volume.`);
+    set(addDays(camp.start, -1), 'recovery', 40, `Day before ${camp.name}: short and easy (or rest if you’re travelling).`);
+    set(addDays(camp.end, 1), null, 0, `Rest after ${camp.name} — the fitness from a camp arrives after you recover from it.`);
+    set(addDays(camp.end, 2), 'recovery', 45, `Recovering from ${camp.name}: easy spin only.`);
+    set(addDays(camp.end, 3), 'recovery', 60, `Recovering from ${camp.name}: easy spin only.`);
+    set(addDays(camp.end, 4), 'endurance', 75, `Recovering from ${camp.name}: short easy Zone 2.`);
+    set(addDays(camp.end, 5), 'endurance', 90, `Recovering from ${camp.name}: easy Zone 2 — normal training resumes tomorrow.`);
+  }
+  const campDays = days.filter((d) => ctx.cfg[d].status === 'camp');
+  if (campDays.length) {
+    const c = ctx.cfg[campDays[0]].camp!;
+    ctx.summary.push(`${c.name}: ${campDays.length} camp day${campDays.length === 1 ? '' : 's'} this week, up to ${fmtMinutes(c.minutes)} of mostly Zone 2 a day (every 4th day easier). Eat 60-90 g carbs/h on the bike and sleep as much as you can.`);
   }
 
   // ---------- 2. race-week shaping (openers, pre-race rest, post-race recovery) ----------
@@ -547,7 +615,8 @@ export function planWeek(input: PlanInput): WeekPlan {
     for (let i = start; i < candidates.length; i++) choose(i + 1, [...chosen, candidates[i]]);
   };
   if (kk > 0) choose(0, []);
-  if (kk < k) ctx.warnings.push(`Only room for ${kk} of ${k} planned quality sessions with your availability.`);
+  const campWeek = days.some((d) => ctx.cfg[d].status === 'camp' || ctx.rides[d]?.why[0]?.includes(' camp'));
+  if (kk < k && !campWeek) ctx.warnings.push(`Only room for ${kk} of ${k} planned quality sessions with your availability.`);
 
   bestCombo.sort();
   const usedTemplates = new Set<string>();
@@ -708,7 +777,7 @@ export function planWeek(input: PlanInput): WeekPlan {
         remaining += cut;
       }
     }
-    if (remaining < -15) ctx.warnings.push('Your fixed sessions exceed the hours you set for this week.');
+    if (remaining < -15 && !campWeek) ctx.warnings.push('Your fixed sessions exceed the hours you set for this week.');
   }
 
   // ---------- 8. ramp-rate guard ----------

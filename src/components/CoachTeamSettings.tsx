@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, fmtShort, mondayOf } from '../engine/dates';
 import type { TeamRider } from '../engine/team';
-import type { IntensityModel, LoadPattern, PeriodizationModel, StrengthGoal } from '../engine/types';
+import type { IntensityModel, LoadPattern, PeriodizationModel, StrengthGoal, TrainingCamp } from '../engine/types';
+import { CampForm } from './CampsCard';
 import { coachError, readRiderSettings, updateRiderSettings } from '../lib/coach';
 import { useApp } from '../lib/store';
 
@@ -16,13 +17,14 @@ interface RiderRow {
   intensity: IntensityModel;
   loadPattern: LoadPattern;
   restWeeks: string[];
+  camps: TrainingCamp[];
   savedAt: number | null;
 }
 
 type Loaded = { ok: true; row: RiderRow } | { ok: false; error: string };
 
 function rowFrom(s: Record<string, unknown>, savedAt: number | null): RiderRow {
-  const goal = (s.goal ?? {}) as { model?: PeriodizationModel; intensity?: IntensityModel; loadPattern?: LoadPattern; restWeeks?: string[] };
+  const goal = (s.goal ?? {}) as { model?: PeriodizationModel; intensity?: IntensityModel; loadPattern?: LoadPattern; restWeeks?: string[]; camps?: TrainingCamp[] };
   const strength = (s.strength ?? {}) as { goal?: StrengthGoal };
   return {
     strengthGoal: strength.goal ?? 'build',
@@ -30,6 +32,7 @@ function rowFrom(s: Record<string, unknown>, savedAt: number | null): RiderRow {
     intensity: goal.intensity ?? 'auto',
     loadPattern: goal.loadPattern ?? '3:1',
     restWeeks: [...(goal.restWeeks ?? [])].sort(),
+    camps: goal.camps ?? [],
     savedAt,
   };
 }
@@ -134,6 +137,40 @@ export function CoachTeamSettings({ riders, onToast }: { riders: TeamRider[]; on
     restRemove.length > 0 && `remove rest week${restRemove.length === 1 ? '' : 's'} ${restRemove.map(fmtShort).join(', ')}`,
   ].filter(Boolean) as string[];
 
+  // Camps already set across the selected riders (same camp id = one row)
+  const teamCamps = useMemo(() => {
+    const m = new Map<string, { camp: TrainingCamp; riders: string[] }>();
+    for (const r of sel) {
+      const l = loaded[r.id];
+      if (l?.ok) for (const c of l.row.camps) if (c.end >= app.asOf) (m.get(c.id) ?? m.set(c.id, { camp: c, riders: [] }).get(c.id)!).riders.push(r.rider);
+    }
+    return [...m.values()].sort((a, b) => a.camp.start.localeCompare(b.camp.start));
+  }, [sel, loaded, app.asOf]);
+
+  const campChange = async (label: string, mutate: (cs: TrainingCamp[]) => TrainingCamp[]) => {
+    setSaving(true);
+    setResults(null);
+    const conn = app.getConnection();
+    const res = await Promise.all(
+      sel.map((r) =>
+        updateRiderSettings(conn, r.id, (s) => {
+          const goal = { ...((s.goal as Record<string, unknown>) ?? {}) };
+          goal.camps = mutate((goal.camps as TrainingCamp[] | undefined) ?? []);
+          return { ...s, goal };
+        })
+          .then(() => ({ rider: r.rider, ok: true, detail: 'saved — their app picks it up next time it syncs' }))
+          .catch((e) => ({ rider: r.rider, ok: false, detail: coachError(e as Error, r.rider) })),
+      ),
+    );
+    setSaving(false);
+    setResults(res);
+    onToast(`${label} for ${res.filter((x) => x.ok).length} of ${res.length} rider${res.length === 1 ? '' : 's'}.`);
+    if (sel.some((r) => r.id === app.data.profile?.id)) app.sync().catch(() => {});
+    loadAll();
+  };
+  const addCamp = (c: TrainingCamp) => campChange(`Added “${c.name}”`, (cs) => [...cs.filter((x) => x.id !== c.id), { ...c, fromCoach: true }]);
+  const removeCamp = (c: TrainingCamp) => campChange(`Removed “${c.name}”`, (cs) => cs.filter((x) => x.id !== c.id));
+
   const apply = async () => {
     if (!sel.length || !changes.length) return;
     setSaving(true);
@@ -210,6 +247,7 @@ export function CoachTeamSettings({ riders, onToast }: { riders: TeamRider[]; on
               <th>Intensity</th>
               <th>Loading</th>
               <th>Rest weeks (upcoming)</th>
+              <th>Camps</th>
             </tr>
           </thead>
           <tbody>
@@ -224,11 +262,11 @@ export function CoachTeamSettings({ riders, onToast }: { riders: TeamRider[]; on
                     </button>
                   </td>
                   {!l ? (
-                    <td colSpan={5} className="muted small">
+                    <td colSpan={6} className="muted small">
                       {loading ? 'Loading…' : '—'}
                     </td>
                   ) : !l.ok ? (
-                    <td colSpan={5} className="muted small">
+                    <td colSpan={6} className="muted small">
                       {l.error}
                     </td>
                   ) : (
@@ -241,6 +279,7 @@ export function CoachTeamSettings({ riders, onToast }: { riders: TeamRider[]; on
                         {l.row.restWeeks.filter((w) => w >= mondayOf(app.asOf)).map(fmtShort).join(', ') || <span className="muted">none</span>}
                         {l.row.savedAt == null && <span className="tiny muted"> · not synced yet</span>}
                       </td>
+                      <td className="small">{l.row.camps.filter((c) => c.end >= app.asOf).map((c) => `${c.name} (${fmtShort(c.start)})`).join(', ') || <span className="muted">none</span>}</td>
                     </>
                   )}
                 </tr>
@@ -387,6 +426,32 @@ export function CoachTeamSettings({ riders, onToast }: { riders: TeamRider[]; on
           </div>
         )}
         <span className="tiny muted">Rest weeks are about 40% less volume and easy riding; the loading cycle restarts after each one.</span>
+      </div>
+
+      <div className="stack" style={{ gap: 6 }}>
+        <span className="tiny muted" style={{ fontWeight: 600 }}>
+          Training camp
+        </span>
+        <span className="tiny ink2">
+          Added straight away to {all ? 'everyone' : one ? one.rider : `the ${sel.length} ticked riders`}. Each rider’s plan builds the camp days from their own usual hours (or the hours/day you set), with an easy run-in and recovery after.
+        </span>
+        <CampForm weeklyHours={8} cta={`Add to ${all ? 'everyone' : one ? one.rider : `${sel.length} riders`}`} onAdd={addCamp} />
+        {teamCamps.length > 0 && (
+          <ul className="weeks-off">
+            {teamCamps.map(({ camp, riders: who }) => (
+              <li key={camp.id}>
+                <b>{camp.name}</b>
+                <span className="small ink2">
+                  {fmtShort(camp.start)} – {fmtShort(camp.end)} · {camp.hoursPerDay ? `${camp.hoursPerDay} h/day` : 'auto hours'} · {who.length === riders.length ? 'everyone' : who.join(', ')}
+                </span>
+                <span className="spacer" />
+                <button className="btn sm ghost" disabled={saving} onClick={() => removeCamp(camp)}>
+                  Remove{sel.length < riders.length ? ' for selected' : ''}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="row" style={{ alignItems: 'center' }}>

@@ -168,6 +168,8 @@ export interface GoalSettings {
   awayWeeks?: ISODate[]; // Mondays of weeks you can't train at all (travel, vacation)
   offRanges?: { id: string; start: ISODate; end: ISODate; note?: string }[]; // exact days off (e.g. back mid-week)
   races?: PlannedRace[]; // races you added in the app
+  /** training camps (e.g. a winter base trip): high-volume Zone 2 days, an easy run-in and recovery after */
+  camps?: TrainingCamp[];
 }
 
 export type RacePriority = 'A' | 'B' | 'C';
@@ -206,7 +208,18 @@ export interface MobilityPrefs {
   band: boolean;
 }
 
-export type DayStatus = 'available' | 'off' | 'group' | 'pinned' | 'race' | 'scheduled';
+export type DayStatus = 'available' | 'off' | 'group' | 'pinned' | 'race' | 'scheduled' | 'camp';
+
+export interface TrainingCamp {
+  id: string;
+  name: string;
+  start: ISODate;
+  end: ISODate;
+  /** riding per day on a full camp day; null = worked out from your usual weekly hours */
+  hoursPerDay: number | null;
+  /** set by your coach for the team */
+  fromCoach?: boolean;
+}
 export type GroupIntensity = 'social' | 'tempo' | 'hard' | 'race';
 
 export interface DayConfig {
@@ -217,6 +230,8 @@ export interface DayConfig {
   /** ignore the workout on your intervals.icu calendar for this day (you moved it to another day) */
   skipCalendar?: boolean;
   race?: { name: string; durationMin: number; priority: 'A' | 'B' | 'C' };
+  /** a day of a training camp: which day it is and the full-day riding target */
+  camp?: { name: string; index: number; length: number; minutes: number };
   /** a workout already on your intervals.icu calendar (from a coach, TrainerRoad, etc.) */
   scheduled?: { name: string; durationMin: number; tss: number | null; description?: string | null; type?: string | null; templateId?: string | null; level?: number | null; externalId?: string | null };
   noLift?: boolean;
@@ -230,6 +245,8 @@ export interface WeekConfig {
   startDate: ISODate; // first day of the 7-day window
   hours: number; // hours available this week
   days: Record<ISODate, DayConfig>;
+  /** how many days from startDate this config covers (default 7) */
+  span?: number;
 }
 
 export type TargetMode = 'power' | 'hr';
@@ -301,7 +318,7 @@ export interface PlannedWorkout {
   why: string[]; // rationale lines
   fueling: string;
   key: boolean; // counts as a key/quality session
-  fixed?: 'group' | 'pinned' | 'race' | 'calendar';
+  fixed?: 'group' | 'pinned' | 'race' | 'calendar' | 'camp';
   indoorAlt?: string;
   progression?: { zone: string; workoutLevel: number; athleteLevel: number | null; difficulty: string | null };
   level?: number;

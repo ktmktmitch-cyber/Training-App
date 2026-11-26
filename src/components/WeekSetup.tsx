@@ -191,7 +191,7 @@ export function WeekSetup({ week, onChange, onSaveUsual, onResetUsual }: { week:
         <button className="btn sm" onClick={onSaveUsual}>
           Save as my usual week
         </button>
-        <button className="btn sm ghost" onClick={onResetUsual}>
+        <button className="btn sm ghost" onClick={() => onResetUsual()}>
           Reset to usual
         </button>
         <span className="tiny muted">Your usual week (hours, blocked days, group rides, time caps) pre-fills every new week.</span>
