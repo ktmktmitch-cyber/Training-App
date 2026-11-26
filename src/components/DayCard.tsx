@@ -184,6 +184,7 @@ export function DayCard(props: {
             {r && r.key && <DifficultyChip difficulty={r.progression?.difficulty} />}
             {day.strength && <span className="chip">🏋 {day.strength.title}</span>}
             {r?.fixed === 'group' && <span className="chip">Your group ride</span>}
+            {r?.fixed === 'camp' && <span className="chip camp-chip">⛺ Training camp</span>}
             {r?.fixed === 'pinned' && !fromCoach && <span className="chip">{r.why[0]?.startsWith('Moved here') ? 'Moved' : 'Your pick'}</span>}
             {fromCoach && (
               <span className="chip coach-chip">

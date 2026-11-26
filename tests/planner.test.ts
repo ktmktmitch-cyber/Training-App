@@ -37,12 +37,44 @@ describe('coach: everyone view', () => {
   });
 });
 
-import { carryDays } from '../src/lib/store';
-describe('rolling week', () => {
-  it('keeps a day change made yesterday in today’s window', () => {
-    const weeks: any = { '2026-11-24': { startDate: '2026-11-24', hours: 9, days: { '2026-11-28': { status: 'pinned', maxMinutes: null, pinned: { workoutId: 'threshold', durationMin: 60 } }, '2026-11-24': { status: 'off', maxMinutes: null } } } };
-    const w = carryDays(weeks, '2026-11-25', { startDate: '2026-11-25', hours: 8, days: {} });
-    expect(w.days['2026-11-28'].status).toBe('pinned');
-    expect(w.days['2026-11-24']).toBeUndefined(); // outside the window
+import { buildWindow, dayAt, writeWindow } from '../src/lib/store';
+describe('availability by calendar week', () => {
+  const usual = { hours: 8, days: { 3: { status: 'off' as const, maxMinutes: null } } }; // Wednesdays off
+  it('keeps day changes as the window rolls forward, and reads old rolling-window entries', () => {
+    const legacy: any = { '2026-11-24': { startDate: '2026-11-24', hours: 9, days: { '2026-11-28': { status: 'pinned', maxMinutes: null, pinned: { workoutId: 'threshold', durationMin: 60 } } } } };
+    expect(dayAt(legacy, '2026-11-28', usual)!.status).toBe('pinned');
+    expect(dayAt(legacy, '2026-11-25', usual)!.status).toBe('off'); // usual Wednesday
+    // edit next week from today's window: survives into a later window
+    const w = buildWindow(legacy, '2026-11-26', 11, usual);
+    w.days['2026-12-04'] = { status: 'off', maxMinutes: null };
+    const saved = writeWindow(legacy, w, usual, false);
+    expect(buildWindow(saved, '2026-12-01', 7, usual).days['2026-12-04'].status).toBe('off');
+    expect(saved['2026-11-30'].days['2026-12-04'].status).toBe('off'); // stored under its calendar week
+  });
+  it('removing a day setting goes back to the usual week; hours are per calendar week', () => {
+    let weeks: any = writeWindow({}, { startDate: '2026-11-30', hours: 12, days: { '2026-12-02': { status: 'group', maxMinutes: null } } }, usual, true);
+    expect(weeks['2026-11-30'].hours).toBe(12);
+    weeks = writeWindow(weeks, { startDate: '2026-11-30', hours: 12, days: {} }, usual, true);
+    expect(dayAt(weeks, '2026-12-02', usual)!.status).toBe('off');
+    // a window spanning two calendar weeks averages their hours by days
+    expect(buildWindow(weeks, '2026-11-27', 7, usual).hours).toBe(10.5);
+  });
+});
+
+import { campMinutes, campSession } from '../src/engine/planner';
+describe('training camps', () => {
+  it('camp days are mostly long Zone 2, every 4th easier, one tempo mid-camp', () => {
+    const n = 7;
+    const days = Array.from({ length: n }, (_, i) => campSession({ name: 'Camp', index: i, length: n, minutes: 240 }));
+    expect(days.filter((d) => d.id === 'end_tempo')).toHaveLength(1);
+    expect(days[3].minutes).toBeLessThan(150); // 4th day easier
+    expect(days[6].minutes).toBeLessThan(150); // last day shorter
+    expect(days.filter((d) => d.minutes === 240).length).toBeGreaterThanOrEqual(3);
+    expect(days.every((d) => ['endurance', 'end_tempo', 'end_sprints'].includes(d.id))).toBe(true);
+  });
+  it('auto hours scale with your usual week (about double it over a camp week), within sane limits', () => {
+    expect(campMinutes({ id: 'c', name: 'C', start: '', end: '', hoursPerDay: null }, 8)).toBe(165);
+    expect(campMinutes({ id: 'c', name: 'C', start: '', end: '', hoursPerDay: null }, 20)).toBe(300);
+    expect(campMinutes({ id: 'c', name: 'C', start: '', end: '', hoursPerDay: 4.5 }, 8)).toBe(270);
   });
 });
