@@ -78,3 +78,38 @@ describe('training camps', () => {
     expect(campMinutes({ id: 'c', name: 'C', start: '', end: '', hoursPerDay: 4.5 }, 8)).toBe(270);
   });
 });
+
+import { buildMacroPlan as bmp } from '../src/engine/periodization';
+import { addDays } from '../src/engine/dates';
+import { projectSeason } from '../src/engine/projection';
+import { defaultGoal as dg } from '../src/lib/defaults';
+describe('training camps in the season plan', () => {
+  const asOf = '2026-11-26';
+  const base = { ...dg(asOf), eventType: 'road_race' as const, eventDate: '2027-06-01', planStart: '2026-11-23', loadPattern: '3:1' as const };
+  const plain = bmp(base, [], asOf);
+  // put the camp in a week the plan had as recovery, to check it's moved
+  const rec = plain.weeks.find((w) => w.weekType === 'recovery' && w.start > '2026-12-07')!;
+  const camp = { id: 'c1', name: 'Winter camp', start: rec.start, end: addDays(rec.start, 6), hoursPerDay: null };
+  const withCamp = bmp({ ...base, camps: [camp] }, [], asOf);
+  const at = (d: string) => withCamp.weeks.find((w) => w.start === d)!;
+  it('camp week is a loading week, the week after is recovery, and the cycle restarts', () => {
+    expect(at(rec.start).camp?.days).toBe(7);
+    expect(at(rec.start).weekType).toBe('load');
+    const after = at(addDays(rec.start, 7));
+    expect(after.weekType).toBe('recovery');
+    expect(after.postCamp).toBe('Winter camp');
+    // the next two weeks load again before another recovery
+    expect(at(addDays(rec.start, 14)).weekType).toBe('load');
+  });
+  it('a recovery week right before the camp becomes a loading week', () => {
+    const camp2 = { ...camp, id: 'c2', start: addDays(rec.start, 7), end: addDays(rec.start, 13) }; // camp right after a planned recovery week
+    const p = bmp({ ...base, camps: [camp2] }, [], asOf);
+    expect(p.weeks.find((w) => w.start === rec.start)!.weekType).toBe('load');
+  });
+  it('the fitness projection rises through the camp', () => {
+    const a = projectSeason(plain, 8, 40, 40, asOf).points;
+    const b = projectSeason(withCamp, 8, 40, 40, asOf).points;
+    const end = addDays(rec.start, 6);
+    expect(b.find((x) => x.date === end)!.ctl).toBeGreaterThan(a.find((x) => x.date === end)!.ctl + 3);
+  });
+});

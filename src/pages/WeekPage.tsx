@@ -141,7 +141,9 @@ export function WeekPage() {
               <span className="chip">
                 {PHASE_LABELS[mw.phase]} {mw.weekInPhase}/{mw.phaseWeeks}
               </span>
-              {mw.weekType !== 'load' && <span className="chip">{mw.weekType === 'hit_block' ? 'HIT block' : `${mw.weekType} week`}</span>}
+              {mw.camp && <span className="chip camp-chip">⛺ {mw.camp.name} · {mw.camp.days} camp day{mw.camp.days === 1 ? '' : 's'}</span>}
+              {mw.postCamp && <span className="chip">Recovery after {mw.postCamp}</span>}
+              {mw.weekType !== 'load' && !mw.postCamp && <span className="chip">{mw.weekType === 'hit_block' ? 'HIT block' : `${mw.weekType} week`}</span>}
               <span>{mw.focus}</span>
               <label className={`switch ${canChooseRest(mw) ? '' : 'disabled'}`} title={canChooseRest(mw) ? 'Easy riding only, ~40% less volume; the loading cycle restarts after it' : mw.weekType === 'recovery' ? 'The plan already has this as a recovery week' : 'Taper and race weeks can’t be rest weeks'}>
                 <input
